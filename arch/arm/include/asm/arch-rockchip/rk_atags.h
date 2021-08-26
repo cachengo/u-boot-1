@@ -16,6 +16,8 @@
 #define ATAG_DDR_MEM		0x54410052
 #define ATAG_TOS_MEM		0x54410053
 #define ATAG_RAM_PARTITION	0x54410054
+#define ATAG_ATF_MEM		0x54410055
+#define ATAG_MAX		0x544100ff
 
 /* Tag size and offset */
 #define ATAGS_SIZE		(0x2000)	/* 8K */
@@ -29,11 +31,13 @@
 #endif
 
 /* tag_bootdev.devtype */
-#define BOOT_TYPE_EMMC		0x0
-#define BOOT_TYPE_NAND		0x1
-#define BOOT_TYPE_SDCARD	0x2
-#define BOOT_TYPE_SPI_NOR	0x3
-#define BOOT_TYPE_SPI_NAND	0x4
+#define BOOT_TYPE_NAND		(1 << 0)
+#define BOOT_TYPE_EMMC		(1 << 1)
+#define BOOT_TYPE_SD0		(1 << 2)
+#define BOOT_TYPE_SD1		(1 << 3)
+#define BOOT_TYPE_SPI_NOR	(1 << 4)
+#define BOOT_TYPE_SPI_NAND	(1 << 5)
+#define BOOT_TYPE_RAM		(1 << 6)
 
 /* tag_serial.m_mode */
 #define SERIAL_M_MODE_M0	0x0
@@ -46,7 +50,8 @@ struct tag_serial {
 	u64 addr;
 	u32 baudrate;
 	u32 m_mode;
-	u32 reserved[4];
+	u32 id;
+	u32 reserved[3];
 } __packed;
 
 struct tag_bootdev {
@@ -83,6 +88,14 @@ struct tag_tos_mem {
 	u64 reserved[8];
 } __packed;
 
+struct tag_atf_mem {
+	u32 version;
+	u64 phy_addr;
+	u32 size;
+	u32 flags;
+	u32 reserved[3];
+} __packed;
+
 struct tag_ram_partition {
 	u32 version;
 	u32 count;
@@ -116,6 +129,7 @@ struct tag {
 		struct tag_ddr_mem	ddr_mem;
 		struct tag_tos_mem	tos_mem;
 		struct tag_ram_partition ram_part;
+		struct tag_atf_mem	atf_mem;
 	} u;
 } __aligned(4);
 

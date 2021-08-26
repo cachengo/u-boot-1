@@ -10,7 +10,7 @@
 #include <common.h>
 #include <dm.h>
 #include <dt-structs.h>
-#include <libfdt.h>
+#include <linux/libfdt.h>
 #include <malloc.h>
 #include <mapmem.h>
 #include <sdhci.h>
@@ -86,7 +86,7 @@ static void rk3399_emmc_phy_power_on(struct rockchip_emmc_phy *phy, u32 clock)
 	caldone = readl(&phy->emmcphy_status);
 	caldone = (caldone >> PHYCTRL_CALDONE_SHIFT) & PHYCTRL_CALDONE_MASK;
 	if (caldone != PHYCTRL_CALDONE_DONE) {
-		debug("%s: caldone timeout.\n", __func__);
+		printf("%s: caldone timeout.\n", __func__);
 		return;
 	}
 
@@ -115,7 +115,7 @@ static void rk3399_emmc_phy_power_on(struct rockchip_emmc_phy *phy, u32 clock)
 	} while (get_timer(start) < 50000);
 
 	if (dllrdy != PHYCTRL_DLLRDY_DONE)
-		debug("%s: dllrdy timeout.\n", __func__);
+		printf("%s: dllrdy timeout.\n", __func__);
 }
 
 static void rk3399_emmc_phy_power_off(struct rockchip_emmc_phy *phy)
@@ -320,6 +320,10 @@ static int arasan_sdhci_probe(struct udevice *dev)
 	host->quirks = SDHCI_QUIRK_WAIT_SEND_CMD;
 	host->max_clk = max_frequency;
 
+	if (dev_read_bool(dev, "mmc-hs200-1_8v"))
+		host->host_caps |= MMC_MODE_HS200;
+	else if (dev_read_bool(dev, "mmc-hs400-1_8v"))
+		host->host_caps |= MMC_MODE_HS400;
 	ret = sdhci_setup_cfg(&plat->cfg, host, 0, EMMC_MIN_FREQ);
 
 	host->mmc = &plat->mmc;

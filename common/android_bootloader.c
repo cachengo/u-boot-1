@@ -15,17 +15,21 @@
 #include <dt_table.h>
 #include <image-android-dt.h>
 #include <malloc.h>
+#include <fdt_support.h>
 #include <fs.h>
 #include <boot_rkimg.h>
 #include <attestation_key.h>
-#include <optee_include/OpteeClientInterface.h>
+#include <keymaster.h>
 #include <linux/libfdt_env.h>
+#include <optee_include/OpteeClientInterface.h>
+#include <sysmem.h>
 
 #define ANDROID_PARTITION_BOOT "boot"
 #define ANDROID_PARTITION_MISC "misc"
 #define ANDROID_PARTITION_OEM  "oem"
 #define ANDROID_PARTITION_RECOVERY  "recovery"
 #define ANDROID_PARTITION_SYSTEM "system"
+#define ANDROID_PARTITION_VBMETA "vbmeta"
 
 #define ANDROID_ARG_SLOT_SUFFIX "androidboot.slot_suffix="
 #define ANDROID_ARG_ROOT "root="
@@ -300,15 +304,36 @@ static int android_bootloader_get_fdt(const char *part_name,
 
 int android_bootloader_boot_kernel(unsigned long kernel_address)
 {
+	ulong comp;
 	char kernel_addr_str[12];
 	char *fdt_addr = env_get("fdt_addr");
+	char *kernel_addr_r = env_get("kernel_addr_r");
+	char *kernel_addr_c = env_get("kernel_addr_c");
+
+	const char *comp_name[] = {
+		[IH_COMP_NONE]  = "",
+		[IH_COMP_GZIP]  = "GZIP",
+		[IH_COMP_BZIP2] = "BZIP2",
+		[IH_COMP_LZMA]  = "LZMA",
+		[IH_COMP_LZO]   = "LZO",
+		[IH_COMP_LZ4]   = "LZ4",
+		[IH_COMP_ZIMAGE]= "ZIMAGE",
+	};
 	char *bootm_args[] = {
 		"bootm", kernel_addr_str, kernel_addr_str, fdt_addr, NULL };
 
+	comp = android_image_get_comp((struct andr_img_hdr *)kernel_address);
 	sprintf(kernel_addr_str, "0x%lx", kernel_address);
 
-	printf("Booting kernel at %s with fdt at %s...\n\n\n",
-	       kernel_addr_str, fdt_addr);
+	if (comp != IH_COMP_NONE)
+		printf("Booting %s kernel at %s(Uncompress to %s) with fdt at %s...\n\n\n",
+		       comp_name[comp], kernel_addr_c, kernel_addr_r, fdt_addr);
+	else
+		printf("Booting kernel at %s with fdt at %s...\n\n\n",
+		       kernel_addr_r, fdt_addr);
+
+	sysmem_dump_check();
+
 	do_bootm(NULL, 0, 4, bootm_args);
 
 	return -1;
@@ -424,7 +449,7 @@ static void slot_set_unbootable(AvbABSlotData* slot)
 }
 
 static AvbSlotVerifyResult android_slot_verify(char *boot_partname,
-			       unsigned long load_address,
+			       unsigned long *android_load_address,
 			       char *slot_suffix)
 {
 	const char *requested_partitions[1] = {NULL};
@@ -436,6 +461,9 @@ static AvbSlotVerifyResult android_slot_verify(char *boot_partname,
 	AvbABData ab_data, ab_data_orig;
 	size_t slot_index_to_boot = 0;
 	char verify_state[38] = {0};
+	char can_boot = 1;
+	unsigned long load_address = *android_load_address;
+	struct andr_img_hdr *hdr;
 
 	requested_partitions[0] = boot_partname;
 	ops = avb_ops_user_new();
@@ -459,9 +487,9 @@ static AvbSlotVerifyResult android_slot_verify(char *boot_partname,
 		return AVB_SLOT_VERIFY_RESULT_ERROR_IO;
 	}
 
-	if (strncmp(slot_suffix, "_a", 2))
+	if (!strncmp(slot_suffix, "_a", 2))
 		slot_index_to_boot = 0;
-	else if(strncmp(slot_suffix, "_b", 2))
+	else if (!strncmp(slot_suffix, "_b", 2))
 		slot_index_to_boot = 1;
 	else
 		slot_index_to_boot = 0;
@@ -502,6 +530,11 @@ static AvbSlotVerifyResult android_slot_verify(char *boot_partname,
 		break;
 	}
 
+	if (!slot_data[0]) {
+		can_boot = 0;
+		goto out;
+	}
+
 	if (verify_result == AVB_SLOT_VERIFY_RESULT_OK ||
 	    verify_result == AVB_SLOT_VERIFY_RESULT_ERROR_PUBLIC_KEY_REJECTED ||
 	    (unlocked & LOCK_MASK)) {
@@ -533,6 +566,11 @@ static AvbSlotVerifyResult android_slot_verify(char *boot_partname,
 			strcat(newbootargs, slot_data[0]->cmdline);
 		env_set("bootargs", newbootargs);
 
+		/* Reserve page_size */
+		hdr = (void *)slot_data[0]->loaded_partitions->data;
+		load_address -= hdr->page_size;
+		*android_load_address = load_address;
+
 		memcpy((uint8_t *)load_address,
 		       slot_data[0]->loaded_partitions->data,
 		       slot_data[0]->loaded_partitions->data_size);
@@ -546,6 +584,7 @@ static AvbSlotVerifyResult android_slot_verify(char *boot_partname,
 		slot_set_unbootable(&ab_data.slots[slot_index_to_boot]);
 	}
 
+out:
 	env_update("bootargs", verify_state);
 	if (save_metadata_if_changed(ops->ab_ops, &ab_data, &ab_data_orig)) {
 		printf("Can not save metadata\n");
@@ -555,7 +594,7 @@ static AvbSlotVerifyResult android_slot_verify(char *boot_partname,
 	if (slot_data[0] != NULL)
 		avb_slot_verify_data_free(slot_data[0]);
 
-	if (unlocked & LOCK_MASK)
+	if ((unlocked & LOCK_MASK) && can_boot)
 		return 0;
 	else
 		return verify_result;
@@ -766,7 +805,17 @@ int android_fdt_overlay_apply(void *fdt_addr)
 
 	ret = android_get_dtbo(&fdt_dtbo, (void *)hdr, &index);
 	if (!ret) {
+		phys_size_t fdt_size;
 		/* Must incease size before overlay */
+		fdt_size = fdt_totalsize((void *)fdt_addr) +
+				fdt_totalsize((void *)fdt_dtbo);
+		if (sysmem_free((phys_addr_t)fdt_addr))
+			goto out;
+
+		if (!sysmem_alloc_base("fdt(dtbo)",
+				       (phys_addr_t)fdt_addr,
+					fdt_size + CONFIG_SYS_FDT_PAD))
+			goto out;
 		fdt_increase_size(fdt_addr, fdt_totalsize((void *)fdt_dtbo));
 		ret = fdt_overlay_apply(fdt_addr, (void *)fdt_dtbo);
 		if (!ret) {
@@ -784,6 +833,47 @@ out:
 	return 0;
 }
 #endif
+
+static int load_android_image(struct blk_desc *dev_desc,
+			      char *boot_partname,
+			      char *slot_suffix,
+			      unsigned long *load_address)
+{
+	disk_partition_t boot_part;
+	int ret, part_num;
+
+	part_num = android_part_get_info_by_name_suffix(dev_desc,
+							boot_partname,
+							slot_suffix,
+							&boot_part);
+	if (part_num < 0) {
+		printf("%s: Can't find part: %s\n", __func__, boot_partname);
+		return -1;
+	}
+	debug("ANDROID: Loading kernel from \"%s\", partition %d.\n",
+	      boot_part.name, part_num);
+
+	ret = android_image_load(dev_desc, &boot_part, *load_address, -1UL);
+	if (ret < 0) {
+		debug("%s: %s part load fail, ret=%d\n",
+		      __func__, boot_part.name, ret);
+		return ret;
+	}
+	*load_address = ret;
+
+	return 0;
+}
+
+static bool avb_enabled;
+void android_avb_set_enabled(bool enable)
+{
+	avb_enabled = enable;
+}
+
+bool android_avb_is_enabled(void)
+{
+	return avb_enabled;
+}
 
 int android_bootloader_boot_flow(struct blk_desc *dev_desc,
 				 unsigned long load_address)
@@ -804,10 +894,12 @@ int android_bootloader_boot_flow(struct blk_desc *dev_desc,
 	 */
 	part_num = part_get_info_by_name(dev_desc, ANDROID_PARTITION_MISC,
 					 &misc_part_info);
-	if (part_num < 0)
+	if (part_num < 0) {
 		printf("%s Could not find misc partition\n", __func__);
+		return -ENODEV;
+	}
 
-#ifdef CONFIG_OPTEE_CLIENT
+#ifdef CONFIG_ANDROID_KEYMASTER_CA
 	/* load attestation key from misc partition. */
 	load_attestation_key(dev_desc, &misc_part_info);
 #endif
@@ -871,33 +963,48 @@ int android_bootloader_boot_flow(struct blk_desc *dev_desc,
 	}
 
 #ifdef CONFIG_ANDROID_AVB
-	if (android_slot_verify(boot_partname, load_address, slot_suffix))
+	uint8_t vboot_flag = 0;
+	char vbmeta_partition[9] = {0};
+	disk_partition_t vbmeta_part_info;
+
+	if (trusty_read_vbootkey_enable_flag(&vboot_flag))
 		return -1;
+
+	if (vboot_flag) {
+		printf("SecureBoot enabled, AVB verify\n");
+		android_avb_set_enabled(true);
+		if (android_slot_verify(boot_partname, &load_address,
+					slot_suffix))
+			return -1;
+	} else {
+		strcat(vbmeta_partition, ANDROID_PARTITION_VBMETA);
+		strcat(vbmeta_partition, slot_suffix);
+		part_num = part_get_info_by_name(dev_desc, vbmeta_partition,
+						 &vbmeta_part_info);
+		if (part_num < 0) {
+			printf("SecureBoot disabled, AVB skip\n");
+			env_update("bootargs",
+				   "androidboot.verifiedbootstate=orange");
+			android_avb_set_enabled(false);
+			if (load_android_image(dev_desc, boot_partname,
+					       slot_suffix, &load_address))
+				return -1;
+		} else {
+			printf("SecureBoot enabled, AVB verify\n");
+			android_avb_set_enabled(true);
+			if (android_slot_verify(boot_partname, &load_address,
+						slot_suffix))
+				return -1;
+		}
+	}
 #else
 	/*
 	 * 2. Load the boot/recovery from the desired "boot" partition.
 	 * Determine if this is an AOSP image.
 	 */
-	disk_partition_t boot_part_info;
-	part_num =
-	    android_part_get_info_by_name_suffix(dev_desc,
-						 boot_partname,
-						 slot_suffix, &boot_part_info);
-	if (part_num < 0) {
-		printf("%s Could not found bootable partition %s\n", __func__,
-		       boot_partname);
+	if (load_android_image(dev_desc, boot_partname,
+			       slot_suffix, &load_address))
 		return -1;
-	}
-	debug("ANDROID: Loading kernel from \"%s\", partition %d.\n",
-	      boot_part_info.name, part_num);
-
-	ret = android_image_load(dev_desc, &boot_part_info, load_address,
-				 -1UL);
-	if (ret < 0) {
-		printf("%s %s part load fail\n", __func__, boot_part_info.name);
-		return ret;
-	}
-	load_address = ret;
 #endif
 
 	/* Set Android root variables. */
@@ -933,16 +1040,6 @@ int android_bootloader_boot_flow(struct blk_desc *dev_desc,
 	ret = android_image_get_fdt((void *)load_address, &fdt_addr);
 	if (!ret)
 		env_set_hex("fdt_addr", fdt_addr);
-
-/*
- * Actually if CONFIG_USING_KERNEL_DTB is enbled, we have already read kernel
- * dtb and apply overlay in init_kernel_dtb(), so that we don't need to apply
- * again, we would pass the current fdt to kernel.
- */
-#if defined(CONFIG_CMD_DTIMG) && \
-    defined(CONFIG_OF_LIBFDT_OVERLAY) && !defined(CONFIG_USING_KERNEL_DTB)
-	android_fdt_overlay_apply((void *)fdt_addr);
-#endif
 #endif
 	android_bootloader_boot_kernel(load_address);
 

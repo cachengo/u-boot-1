@@ -25,8 +25,8 @@
 
 #define COUNTER_FREQUENCY		24000000
 
-#define GICD_BASE			0xff131000
-#define GICC_BASE			0xff132000
+#define GICD_BASE			0xff581000
+#define GICC_BASE			0xff582000
 
 #define CONFIG_SYS_BOOTM_LEN	(64 << 20)	/* 64M */
 
@@ -36,7 +36,11 @@
 #define CONFIG_SYS_SDRAM_BASE		0
 #define SDRAM_MAX_SIZE			0xff000000
 #define SDRAM_BANK_SIZE			(2UL << 30)
+#ifdef CONFIG_DM_DVFS
+#define CONFIG_PREBOOT			"dvfs repeat"
+#else
 #define CONFIG_PREBOOT
+#endif
 
 #ifndef CONFIG_SPL_BUILD
 
@@ -49,14 +53,15 @@
 	"scriptaddr=0x00500000\0" \
 	"pxefile_addr_r=0x00600000\0" \
 	"fdt_addr_r=0x01f00000\0" \
-	"kernel_addr_r=0x02080000\0" \
-	"kernel_addr_c=0x04080000\0" \
+	"kernel_addr_no_bl32_r=0x00280000\0" \
+	"kernel_addr_r=0x00680000\0" \
+	"kernel_addr_c=0x02480000\0" \
 	"ramdisk_addr_r=0x04000000\0"
 #else
 #define ENV_MEM_LAYOUT_SETTINGS \
 	"scriptaddr=0x00500000\0" \
 	"pxefile_addr_r=0x00600000\0" \
-	"fdt_addr_r=0x03200000\0" \
+	"fdt_addr_r=0x02f00000\0" \
 	"kernel_addr_r=0x00058000\0" \
 	"kernel_addr_c=0x2008000\0" \
 	"ramdisk_addr_r=0x03080000\0"
@@ -68,6 +73,7 @@
 	"partitions=" PARTS_DEFAULT \
 	ROCKCHIP_DEVICE_SETTINGS \
 	RKIMG_DET_BOOTDEV \
+	BOOTENV_SHARED_RKNAND \
 	BOOTENV
 
 #endif

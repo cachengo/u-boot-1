@@ -671,7 +671,9 @@ libs-y += drivers/power/ \
 	drivers/power/mfd/ \
 	drivers/power/pmic/ \
 	drivers/power/battery/ \
-	drivers/power/regulator/
+	drivers/power/regulator/ \
+	drivers/power/dvfs/ \
+	drivers/power/io-domain/
 libs-y += drivers/spi/
 libs-$(CONFIG_FMAN_ENET) += drivers/net/fm/
 libs-$(CONFIG_SYS_FSL_DDR) += drivers/ddr/fsl/
@@ -1488,7 +1490,7 @@ CLEAN_DIRS  += $(MODVERDIR) \
 			$(filter-out include, $(shell ls -1 $d 2>/dev/null))))
 
 CLEAN_FILES += include/bmp_logo.h include/bmp_logo_data.h \
-	       boot* u-boot* MLO* SPL System.map fit-dtb.blob *.bin
+	       boot* u-boot* MLO* SPL System.map fit-dtb.blob *.bin *.img
 
 # Directories & files removed with 'make mrproper'
 MRPROPER_DIRS  += include/config include/generated spl tpl \

@@ -11,6 +11,10 @@
 #include <debug_uart.h>
 
 #include <asm/armv8/mmu.h>
+
+#define NIU_CIF_ADDR		0xfe8a0188
+#define QOS_PRIORITY_LEVEL(h, l)	((((h) & 3) << 8) | ((l) & 3))
+
 static struct mm_region rk1808_mem_map[] = {
 	{
 		.virt = 0x0UL,
@@ -56,11 +60,20 @@ enum {
 	UART2_IO_SEL_USB,
 };
 
+int arch_cpu_init(void)
+{
+	/* Set cif qos priority */
+	writel(QOS_PRIORITY_LEVEL(2, 2), NIU_CIF_ADDR);
+
+	return 0;
+}
+
 /*
  * Default use UART2_TX/RX_M0(TX: GPIO4_A2, RX: GPIO4_A3)
  */
 void board_debug_uart_init(void)
 {
+#ifdef CONFIG_TPL_BUILD
 	static struct rk1808_grf * const grf = (void *)GRF_BASE;
 
 	/* Enable early UART2 channel m0 on the rk1808 */
@@ -72,4 +85,5 @@ void board_debug_uart_init(void)
 		     GPIO4A3_MASK | GPIO4A2_MASK,
 		     GPIO4A2_UART2_TX_M0 << GPIO4A2_SHIFT |
 		     GPIO4A3_UART2_RX_M0 << GPIO4A3_SHIFT);
+#endif
 }

@@ -425,9 +425,19 @@ static const struct vop_ctrl rk3036_ctrl_data = {
 	.dsp_blank = VOP_REG(RK3036_DSP_CTRL1, 0x1, 24),
 	.dclk_pol = VOP_REG(RK3036_DSP_CTRL0, 0x1, 7),
 	.pin_pol = VOP_REG(RK3036_DSP_CTRL0, 0xf, 4),
+	.dither_down = VOP_REG(RK3036_DSP_CTRL0, 0x3, 10),
 	.dsp_layer_sel = VOP_REG(RK3036_DSP_CTRL0, 0x1, 8),
 	.htotal_pw = VOP_REG(RK3036_DSP_HTOTAL_HS_END, 0x1fff1fff, 0),
 	.hact_st_end = VOP_REG(RK3036_DSP_HACT_ST_END, 0x1fff1fff, 0),
+	.hdmi_en = VOP_REG(RK3036_AXI_BUS_CTRL, 0x1, 22),
+	.hdmi_dclk_pol = VOP_REG(RK3036_AXI_BUS_CTRL, 0x1, 23),
+	.hdmi_pin_pol = VOP_REG(RK3036_INT_SCALER, 0x7, 4),
+	.rgb_en = VOP_REG(RK3036_AXI_BUS_CTRL, 0x1, 24),
+	.rgb_dclk_pol = VOP_REG(RK3036_AXI_BUS_CTRL, 0x1, 25),
+	.lvds_en = VOP_REG(RK3036_AXI_BUS_CTRL, 0x1, 26),
+	.lvds_dclk_pol = VOP_REG(RK3036_AXI_BUS_CTRL, 0x1, 27),
+	.mipi_en = VOP_REG(RK3036_AXI_BUS_CTRL, 0x1, 28),
+	.mipi_dclk_pol = VOP_REG(RK3036_AXI_BUS_CTRL, 0x1, 29),
 	.vtotal_pw = VOP_REG(RK3036_DSP_VTOTAL_VS_END, 0x1fff1fff, 0),
 	.vact_st_end = VOP_REG(RK3036_DSP_VACT_ST_END, 0x1fff1fff, 0),
 	.cfg_done = VOP_REG(RK3036_REG_CFG_DONE, 0x1, 0),
@@ -586,7 +596,7 @@ const struct vop_data px30_vop_big = {
 	.max_output = {1920, 1080},
 	.ctrl = &px30_ctrl_data,
 	.grf_ctrl = &px30_grf_ctrl,
-	.win = &rk3366_win0_data,
+	.win = &rk3366_win1_data,
 	.line_flag = &rk3366_vop_lite_line_flag,
 	.reg_len = RK3366_LIT_FRC_LOWER01_0 * 4,
 };
@@ -654,6 +664,20 @@ const struct vop_data rk3308_vop = {
 	.max_output = {1920, 1080},
 	.ctrl = &rk3308_ctrl_data,
 	.win = &rk3366_win0_data,
+	.line_flag = &rk3366_vop_lite_line_flag,
+	.reg_len = RK3366_LIT_FRC_LOWER01_0 * 4,
+};
+
+static const struct vop_grf_ctrl rk1808_grf_ctrl = {
+	.grf_dclk_inv = VOP_REG(RK1808_GRF_PD_VO_CON1, 0x1, 4),
+};
+
+const struct vop_data rk1808_vop = {
+	.version = VOP_VERSION(2, 8),
+	.max_output = {1920, 1080},
+	.ctrl = &px30_ctrl_data,
+	.grf_ctrl = &rk1808_grf_ctrl,
+	.win = &rk3366_win1_data,
 	.line_flag = &rk3366_vop_lite_line_flag,
 	.reg_len = RK3366_LIT_FRC_LOWER01_0 * 4,
 };

@@ -32,6 +32,7 @@
 #endif
 #include <malloc.h>
 #include <mapmem.h>
+#include <memalign.h>
 #ifdef CONFIG_BITBANGMII
 #include <miiphy.h>
 #endif
@@ -54,6 +55,7 @@
 #include <linux/compiler.h>
 #include <linux/err.h>
 #include <efi_loader.h>
+#include <sysmem.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -322,7 +324,15 @@ __weak int power_init_board(void)
 
 static int initr_announce(void)
 {
-	debug("Now running in RAM - U-Boot at: %08lx\n", gd->relocaddr);
+	ulong addr;
+
+#ifndef CONFIG_SKIP_RELOCATE_UBOOT
+	addr = gd->relocaddr;
+#else
+	addr = CONFIG_SYS_TEXT_BASE;
+#endif
+	debug("Now running in RAM - U-Boot at: %08lx\n", addr);
+
 	return 0;
 }
 
@@ -435,6 +445,7 @@ static int initr_mmc(void)
 }
 #endif
 
+#if !defined(CONFIG_USING_KERNEL_DTB) || !defined(CONFIG_ENV_IS_NOWHERE)
 /*
  * Tell if it's OK to load the environment early in boot.
  *
@@ -473,6 +484,44 @@ static int initr_env(void)
 
 	return 0;
 }
+#endif
+
+#ifdef CONFIG_USING_KERNEL_DTB
+static int initr_env_nowhere(void)
+{
+#if defined(CONFIG_NEEDS_MANUAL_RELOC)
+	env_reloc();
+	env_htab.change_ok += gd->reloc_off;
+#endif
+	set_default_env(NULL);
+
+	return 0;
+}
+
+#if !defined(CONFIG_ENV_IS_NOWHERE)
+static int initr_env_switch(void)
+{
+	ALLOC_CACHE_ALIGN_BUFFER(env_t, env_nowhere, 1);
+	int ret;
+
+	/* Export nowhere env for late use */
+	ret = env_export(env_nowhere);
+	if (ret) {
+		printf("%s: export nowhere env fail, ret=%d\n", __func__, ret);
+		return -EINVAL;
+	}
+
+	/* Destroy nowhere env and import storage env */
+	initr_env();
+
+	/* Append/override nowhere env to storage env */
+	himport_r(&env_htab, (char *)env_nowhere->data, ENV_SIZE, '\0',
+		  H_NOCLEAR, 0, 0, NULL);
+
+	return 0;
+}
+#endif	/* CONFIG_ENV_IS_NOWHERE */
+#endif	/* CONFIG_USING_KERNEL_DTB */
 
 #ifdef CONFIG_SYS_BOOTPARAMS_LEN
 static int initr_malloc_bootparams(void)
@@ -718,6 +767,9 @@ static init_fnc_t init_sequence_r[] = {
 #endif
 	initr_barrier,
 	initr_malloc,
+#ifdef CONFIG_SYSMEM
+	sysmem_init,		/* After malloc setup */
+#endif
 	log_init,
 	initr_bootstage,	/* Needs malloc() but has its own timer */
 	initr_console_record,
@@ -738,12 +790,27 @@ static init_fnc_t init_sequence_r[] = {
 #ifdef CONFIG_DM
 	initr_dm,
 #endif
+
+/*
+ * kernel dtb must depends on nowhere to detect boot storage media
+ * and initialize it.
+ */
 #ifdef CONFIG_USING_KERNEL_DTB
-	initr_env,
+	initr_env_nowhere,
 #endif
+
 #if defined(CONFIG_ARM) || defined(CONFIG_NDS32)
 	board_init,	/* Setup chipselects */
 #endif
+
+/*
+ * Now that storage has been initialized in board_init(), we could switch env
+ * from nowhere to storage, i.e. CONFIG_ENV_IS_IN_xxx=y.
+ */
+#if defined(CONFIG_USING_KERNEL_DTB) && !defined(CONFIG_ENV_IS_NOWHERE)
+	initr_env_switch,
+#endif
+
 	/*
 	 * TODO: printing of the clock inforamtion of the board is now
 	 * implemented as part of bdinfo command. Currently only support for

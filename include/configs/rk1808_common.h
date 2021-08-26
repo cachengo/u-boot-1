@@ -26,20 +26,22 @@
 #define CONFIG_BOUNCE_BUFFER
 
 #define CONFIG_SYS_SDRAM_BASE		0
-#define SDRAM_MAX_SIZE			0xff000000
+#define SDRAM_MAX_SIZE			0xf8000000
 #define SDRAM_BANK_SIZE			(2UL << 30)
 #define CONFIG_PREBOOT
 
 #ifndef CONFIG_SPL_BUILD
 /* usb mass storage */
-/* #define CONFIG_USB_FUNCTION_MASS_STORAGE */
-/* #define CONFIG_ROCKUSB_G_DNL_PID        0x330d */
+#define CONFIG_USB_FUNCTION_MASS_STORAGE
+#define CONFIG_ROCKUSB_G_DNL_PID	0x330d
 
 #define ENV_MEM_LAYOUT_SETTINGS \
 	"scriptaddr=0x00500000\0" \
 	"pxefile_addr_r=0x00600000\0" \
 	"fdt_addr_r=0x01f00000\0" \
-	"kernel_addr_r=0x02080000\0" \
+	"kernel_addr_no_bl32_r=0x00280000\0" \
+	"kernel_addr_r=0x00680000\0" \
+	"kernel_addr_c=0x04080000\0" \
 	"ramdisk_addr_r=0x0a200000\0"
 
 #include <config_distro_bootcmd.h>

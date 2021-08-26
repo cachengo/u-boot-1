@@ -1,0 +1,14 @@
+/*
+ * (C) Copyright 2016 Rockchip Electronics Co., Ltd
+ *
+ * SPDX-License-Identifier:     GPL-2.0+
+ */
+
+/dts-v1/;
+#include "rockpi-4-linux.dtsi"
+
+/ {
+	model = "Rockchip RK3399 rockpi4a Board";
+	compatible = "rockchip,rk3399-evb", "rockchip,rk3399",
+		     "google,rk3399evb-rev2";
+};

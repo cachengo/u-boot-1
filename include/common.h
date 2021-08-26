@@ -144,6 +144,11 @@ ulong board_init_f_alloc_reserve(ulong top);
  */
 void board_init_f_init_reserve(ulong base);
 
+/*
+ * Board-specific Platform code can init serial earlier if needed
+ */
+__weak int board_init_f_init_serial(void);
+
 /**
  * arch_setup_gd() - Set up the global_data pointer
  *
@@ -472,6 +477,7 @@ int board_late_init (void);
 int board_postclk_init (void); /* after clocks/timebase, before env/serial */
 int board_early_init_r (void);
 void board_poweroff (void);
+void board_env_fixup(void);
 
 #if defined(CONFIG_SYS_DRAM_TEST)
 int testdram(void);

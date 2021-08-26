@@ -9,7 +9,7 @@
 
 #include "rockchip-common.h"
 
-#define CONFIG_SYS_MALLOC_LEN		(32 << 20)
+#define CONFIG_SYS_MALLOC_LEN		(128 << 20)
 #define CONFIG_SYS_CBSIZE		1024
 #define CONFIG_SKIP_LOWLEVEL_INIT
 
@@ -27,6 +27,8 @@
 
 #define GICD_BASE			0xFF811000
 #define GICC_BASE			0xFF812000
+
+#define CONFIG_SUPPORT_EMMC_RPMB
 
 #define CONFIG_ROCKUSB_G_DNL_PID	0x320C
 
@@ -56,9 +58,9 @@
 #define ENV_MEM_LAYOUT_SETTINGS \
 	"scriptaddr=0x00500000\0" \
 	"pxefile_addr_r=0x00600000\0" \
-	"fdt_addr_r=0x01f00000\0" \
-	"kernel_addr_r=0x02080000\0" \
-	"ramdisk_addr_r=0x04000000\0"
+	"fdt_addr_r=0x08300000\0" \
+	"kernel_addr_r=0x00280000\0" \
+	"ramdisk_addr_r=0x0a200000\0"
 
 #include <config_distro_bootcmd.h>
 #define CONFIG_EXTRA_ENV_SETTINGS \

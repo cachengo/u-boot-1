@@ -42,6 +42,7 @@ static struct rockchip_pll_rate_table rk1808_pll_rates[] = {
 	RK3036_PLL_RATE(594000000, 2, 99, 2, 1, 1, 0),
 	RK3036_PLL_RATE(500000000, 6, 250, 2, 1, 1, 0),
 	RK3036_PLL_RATE(200000000, 1, 200, 6, 4, 1, 0),
+	RK3036_PLL_RATE(100000000, 1, 150, 6, 6, 1, 0),
 	{ /* sentinel */ },
 };
 
@@ -84,7 +85,7 @@ static struct rockchip_pll_clock rk1808_pll_clks[] = {
 		    RK1808_MODE_CON, 4, 10, 0, rk1808_pll_rates),
 	[GPLL] = PLL(pll_rk3036, PLL_GPLL, RK1808_PLL_CON(24),
 		     RK1808_MODE_CON, 6, 10, 0, rk1808_pll_rates),
-	[NPLL] = PLL(pll_rk3036, PLL_NPLL, RK1808_PLL_CON(24),
+	[NPLL] = PLL(pll_rk3036, PLL_NPLL, RK1808_PLL_CON(32),
 		     RK1808_MODE_CON, 8, 10, 0, rk1808_pll_rates),
 	[PPLL] = PLL(pll_rk3036, PLL_PPLL, RK1808_PMU_PLL_CON(0),
 		     RK1808_PMU_MODE_CON, 0, 10, 0, rk1808_pll_rates),
@@ -353,6 +354,32 @@ static ulong rk1808_saradc_set_clk(struct rk1808_clk_priv *priv, uint hz)
 	return rk1808_saradc_get_clk(priv);
 }
 
+static ulong rk1808_tsadc_get_clk(struct rk1808_clk_priv *priv)
+{
+	struct rk1808_cru *cru = priv->cru;
+	u32 div, con;
+
+	con = readl(&cru->clksel_con[62]);
+	div = con & CLK_SARADC_DIV_CON_MASK;
+
+	return DIV_TO_RATE(OSC_HZ, div);
+}
+
+static ulong rk1808_tsadc_set_clk(struct rk1808_clk_priv *priv, uint hz)
+{
+	struct rk1808_cru *cru = priv->cru;
+	int src_clk_div;
+
+	src_clk_div = DIV_ROUND_UP(OSC_HZ, hz);
+	assert(src_clk_div - 1 < 2047);
+
+	rk_clrsetreg(&cru->clksel_con[62],
+		     CLK_SARADC_DIV_CON_MASK,
+		     (src_clk_div - 1) << CLK_SARADC_DIV_CON_SHIFT);
+
+	return rk1808_tsadc_get_clk(priv);
+}
+
 static ulong rk1808_spi_get_clk(struct rk1808_clk_priv *priv, ulong clk_id)
 {
 	struct rk1808_cru *cru = priv->cru;
@@ -491,38 +518,44 @@ static ulong rk1808_vop_set_clk(struct rk1808_clk_priv *priv,
 		 * vopb dclk source from npll, and equals to
 		 */
 		src_clk_div = DIV_ROUND_UP(RK1808_VOP_PLL_LIMIT_FREQ, hz);
-		rockchip_pll_set_rate(&rk1808_pll_clks[NPLL],
-				      priv->cru, NPLL, src_clk_div * hz);
 		rk_clrsetreg(&cru->clksel_con[5],
 			     DCLK_VOPRAW_SEL_MASK |
 			     DCLK_VOPRAW_PLL_SEL_MASK |
 			     DCLK_VOPRAW_DIV_CON_MASK,
-			     DCLK_VOPRAW_SEL_VOPRAW <<
-			     DCLK_VOPRAW_SEL_SHIFT |
-			     DCLK_VOPRAW_PLL_SEL_NPLL <<
-			     DCLK_VOPRAW_PLL_SEL_SHIFT |
-			     (src_clk_div - 1) << DCLK_VOPRAW_DIV_CON_SHIFT);
+			     (DCLK_VOPRAW_SEL_VOPRAW <<
+			     DCLK_VOPRAW_SEL_SHIFT) |
+			     (DCLK_VOPRAW_PLL_SEL_NPLL <<
+			     DCLK_VOPRAW_PLL_SEL_SHIFT) |
+			     ((src_clk_div - 1) << DCLK_VOPRAW_DIV_CON_SHIFT));
+		rockchip_pll_set_rate(&rk1808_pll_clks[NPLL],
+				      priv->cru, NPLL, src_clk_div * hz);
+
 		break;
 	case DCLK_VOPLITE:
 		/*
 		 * vopl dclk source from cpll, and equals to
 		 */
-		if (!(priv->npll_hz % hz)) {
-			parent = DCLK_VOPLITE_PLL_SEL_NPLL;
-			src_clk_div = do_div(priv->npll_hz, hz);
-		} else if (!(priv->cpll_hz % hz)) {
+		if (!(priv->cpll_hz % hz)) {
 			parent = DCLK_VOPLITE_PLL_SEL_CPLL;
-			src_clk_div = do_div(priv->cpll_hz, hz);
-		} else {
+			src_clk_div = DIV_ROUND_UP(priv->cpll_hz, hz);
+		} else if (!(priv->gpll_hz % hz)) {
 			parent = DCLK_VOPLITE_PLL_SEL_GPLL;
 			src_clk_div = DIV_ROUND_UP(priv->gpll_hz, hz);
+		} else {
+			parent = DCLK_VOPLITE_PLL_SEL_NPLL;
+			src_clk_div = DIV_ROUND_UP(RK1808_VOP_PLL_LIMIT_FREQ,
+						   hz);
+			rockchip_pll_set_rate(&rk1808_pll_clks[NPLL],
+					      priv->cru, NPLL,
+					      src_clk_div * hz);
 		}
 		rk_clrsetreg(&cru->clksel_con[7],
 			     DCLK_VOPLITE_SEL_MASK | DCLK_VOPLITE_PLL_SEL_MASK |
 			     DCLK_VOPLITE_DIV_CON_MASK,
-			     DCLK_VOPLITE_SEL_VOPRAW << DCLK_VOPLITE_SEL_SHIFT |
-			     parent << DCLK_VOPLITE_PLL_SEL_SHIFT |
-			     (src_clk_div - 1) << DCLK_VOPLITE_DIV_CON_SHIFT);
+			     (DCLK_VOPLITE_SEL_VOPRAW <<
+			     DCLK_VOPLITE_SEL_SHIFT) |
+			     (parent << DCLK_VOPLITE_PLL_SEL_SHIFT) |
+			     ((src_clk_div - 1) << DCLK_VOPLITE_DIV_CON_SHIFT));
 		break;
 	default:
 		printf("do not support this vop freq\n");
@@ -663,6 +696,22 @@ static ulong rk1808_peri_set_clk(struct rk1808_clk_priv *priv,
 	return rk1808_peri_get_clk(priv, clk_id);
 }
 
+static ulong rk1808_pclk_pmu_set_clk(struct rk1808_clk_priv *priv,
+				     ulong clk_id, ulong parent_hz, ulong hz)
+{
+	struct rk1808_cru *cru = priv->cru;
+	int src_clk_div;
+
+	src_clk_div = DIV_ROUND_UP(parent_hz, hz);
+	assert(src_clk_div - 1 < 31);
+
+	rk_clrsetreg(&cru->pmu_clksel_con[0],
+		     PCLK_PMU_DIV_CON_MASK,
+		     (src_clk_div - 1) << PCLK_PMU_DIV_CON_SHIFT);
+
+	return parent_hz / src_clk_div;
+}
+
 static ulong rk1808_armclk_set_clk(struct rk1808_clk_priv *priv, ulong hz)
 {
 	struct rk1808_cru *cru = priv->cru;
@@ -755,6 +804,9 @@ static ulong rk1808_clk_get_rate(struct clk *clk)
 	case SCLK_SARADC:
 		rate = rk1808_saradc_get_clk(priv);
 		break;
+	case SCLK_TSADC:
+		rate = rk1808_tsadc_get_clk(priv);
+		break;
 	case SCLK_SPI0:
 	case SCLK_SPI1:
 	case SCLK_SPI2:
@@ -792,9 +844,13 @@ static ulong rk1808_clk_set_rate(struct clk *clk, ulong rate)
 	switch (clk->id) {
 	case PLL_APLL:
 	case PLL_DPLL:
-	case PLL_PPLL:
 		ret = rockchip_pll_set_rate(&rk1808_pll_clks[clk->id - 1],
 					    priv->cru, clk->id - 1, rate);
+		break;
+	case PLL_PPLL:
+		ret = rk1808_pclk_pmu_set_clk(priv, clk->id, rate, PCLK_PMU_HZ);
+		ret = rockchip_pll_set_rate(&rk1808_pll_clks[PPLL],
+					    priv->cru, PPLL, rate);
 		break;
 	case PLL_CPLL:
 		ret = rockchip_pll_set_rate(&rk1808_pll_clks[CPLL],
@@ -843,6 +899,9 @@ static ulong rk1808_clk_set_rate(struct clk *clk, ulong rate)
 		break;
 	case SCLK_SARADC:
 		ret = rk1808_saradc_set_clk(priv, rate);
+		break;
+	case SCLK_TSADC:
+		ret = rk1808_tsadc_set_clk(priv, rate);
 		break;
 	case SCLK_SPI0:
 	case SCLK_SPI1:
@@ -1013,22 +1072,34 @@ static int rk1808_clk_probe(struct udevice *dev)
 	struct rk1808_clk_priv *priv = dev_get_priv(dev);
 	int ret;
 
+	priv->sync_kernel = false;
+	if (!priv->armclk_enter_hz) {
+		priv->armclk_enter_hz =
+		rockchip_pll_get_rate(&rk1808_pll_clks[APLL],
+				      priv->cru, APLL);
+		priv->armclk_init_hz = priv->armclk_enter_hz;
+	}
 	if (rockchip_pll_get_rate(&rk1808_pll_clks[APLL],
 				  priv->cru, APLL) != APLL_HZ) {
 		ret = rk1808_armclk_set_clk(priv, APLL_HZ);
 		if (ret < 0)
 			printf("%s failed to set armclk rate\n", __func__);
+		priv->armclk_init_hz = APLL_HZ;
 	}
 
 	priv->cpll_hz = rockchip_pll_get_rate(&rk1808_pll_clks[CPLL],
 					      priv->cru, CPLL);
 	priv->gpll_hz = rockchip_pll_get_rate(&rk1808_pll_clks[GPLL],
 					      priv->cru, GPLL);
+	priv->npll_hz = rockchip_pll_get_rate(&rk1808_pll_clks[NPLL],
+					      priv->cru, NPLL);
 
 	/* Process 'assigned-{clocks/clock-parents/clock-rates}' properties */
 	ret = clk_set_defaults(dev);
 	if (ret)
 		debug("%s clk_set_defaults failed %d\n", __func__, ret);
+	else
+		priv->sync_kernel = true;
 
 	return 0;
 }
@@ -1104,6 +1175,7 @@ U_BOOT_DRIVER(rockchip_rk1808_cru) = {
 int soc_clk_dump(void)
 {
 	struct udevice *cru_dev;
+	struct rk1808_clk_priv *priv;
 	const struct rk1808_clk_info *clk_dump;
 	struct clk clk;
 	unsigned long clk_count = ARRAY_SIZE(clks_dump);
@@ -1118,7 +1190,14 @@ int soc_clk_dump(void)
 		return ret;
 	}
 
-	printf("CLK:");
+	priv = dev_get_priv(cru_dev);
+	printf("CLK: (%s. arm: enter %lu KHz, init %lu KHz, kernel %lu%s)\n",
+	       priv->sync_kernel ? "sync kernel" : "uboot",
+	       priv->armclk_enter_hz / 1000,
+	       priv->armclk_init_hz / 1000,
+	       priv->set_armclk_rate ? priv->armclk_hz / 1000 : 0,
+	       priv->set_armclk_rate ? " KHz" : "N/A");
+
 	for (i = 0; i < clk_count; i++) {
 		clk_dump = &clks_dump[i];
 		if (clk_dump->name) {
@@ -1132,17 +1211,17 @@ int soc_clk_dump(void)
 			clk_free(&clk);
 			if (i == 0) {
 				if (rate < 0)
-					printf("%s %s\n", clk_dump->name,
+					printf("  %s %s\n", clk_dump->name,
 					       "unknown");
 				else
-					printf("%s %lu KHz\n", clk_dump->name,
+					printf("  %s %lu KHz\n", clk_dump->name,
 					       rate / 1000);
 			} else {
 				if (rate < 0)
-					printf("%s %s\n", clk_dump->name,
+					printf("  %s %s\n", clk_dump->name,
 					       "unknown");
 				else
-					printf("%s %lu KHz\n", clk_dump->name,
+					printf("  %s %lu KHz\n", clk_dump->name,
 					       rate / 1000);
 			}
 		}

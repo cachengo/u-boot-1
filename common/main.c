@@ -44,7 +44,7 @@ static void run_preboot_environment_command(void)
 void main_loop(void)
 {
 	const char *s;
-
+	printf("^^^^^Jimmy was also here @ common/main.c^^^^^");
 	bootstage_mark_name(BOOTSTAGE_ID_MAIN_LOOP, "main_loop");
 
 #ifdef CONFIG_VERSION_VARIABLE

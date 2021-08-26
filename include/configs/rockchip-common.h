@@ -20,10 +20,22 @@
 
 #define CONFIG_SYS_NS16550_MEM32
 
-#define CONFIG_NR_DRAM_BANKS		2
+#define CONFIG_NR_DRAM_BANKS		4
 
 #ifndef CONFIG_SPL_BUILD
 #include <config_distro_defaults.h>
+
+#ifdef CONFIG_CMD_RKNAND
+#define BOOTENV_SHARED_RKNAND	BOOTENV_SHARED_BLKDEV(rknand)
+#define BOOTENV_DEV_RKNAND		BOOTENV_DEV_BLKDEV
+#define BOOTENV_DEV_NAME_RKNAND	BOOTENV_DEV_NAME_BLKDEV
+#else
+#define BOOTENV_SHARED_RKNAND
+#define BOOTENV_DEV_RKNAND \
+	BOOT_TARGET_DEVICES_references_RKNAND_without_CONFIG_CMD_RKNAND
+#define BOOTENV_DEV_NAME_RKNAND \
+	BOOT_TARGET_DEVICES_references_RKNAND_without_CONFIG_CMD_RKNAND
+#endif
 
 /* First try to boot from SD (index 1), then eMMC (index 0) */
 #if CONFIG_IS_ENABLED(CMD_MMC)
@@ -32,6 +44,12 @@
 		func(MMC, mmc, 0)
 #else
 	#define BOOT_TARGET_MMC(func)
+#endif
+
+#if CONFIG_IS_ENABLED(CMD_RKNAND)
+	#define BOOT_TARGET_RKNAND(func) func(RKNAND, rknand, 0)
+#else
+	#define BOOT_TARGET_RKNAND(func)
 #endif
 
 #if CONFIG_IS_ENABLED(CMD_USB)
@@ -52,12 +70,19 @@
 	#define BOOT_TARGET_DHCP(func)
 #endif
 
+#if (CONFIG_IS_ENABLED(CMD_NVME) && CONFIG_IS_ENABLED(CMD_CACHE) && CONFIG_IS_ENABLED(CMD_PCI))
+	#define BOOT_TARGET_NVME(func) func(NVME, nvme, na)
+#else
+	#define BOOT_TARGET_NVME(func)
+#endif
+
 #define BOOT_TARGET_DEVICES(func) \
+	BOOT_TARGET_NVME(func) \
 	BOOT_TARGET_MMC(func) \
+	BOOT_TARGET_RKNAND(func) \
 	BOOT_TARGET_USB(func) \
 	BOOT_TARGET_PXE(func) \
 	BOOT_TARGET_DHCP(func)
-
 
 #ifdef CONFIG_ARM64
 #define FDTFILE "rockchip/" CONFIG_DEFAULT_DEVICE_TREE ".dtb" "\0"
@@ -99,6 +124,11 @@
 
 #define RKIMG_DET_BOOTDEV \
 	"rkimg_bootdev=" \
+	"dcache off; echo dcache off; pci e;nvme scan;"	\
+	"if nvme dev 0; then " \
+		"setenv devtype nvme; setenv devnum 0;" \
+	"else " \
+	"dcache on; echo dcache on;" \
 	"if mmc dev 1 && rkimgtest mmc 1; then " \
 		"setenv devtype mmc; setenv devnum 1; echo Boot from SDcard;" \
 	"elif mmc dev 0; then " \
@@ -109,13 +139,21 @@
 		"setenv devtype spinand; setenv devnum 0;" \
 	"elif rksfc dev 1; then " \
 		"setenv devtype spinor; setenv devnum 1;" \
+	"fi;" \
 	"fi; \0"
 
+#ifdef CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE
 #define RKIMG_BOOTCOMMAND \
-	"run distro_bootcmd;"\
+	"boot_android ${devtype} ${devnum};" \
+	"echo AVB boot failed and enter rockusb or fastboot!;" \
+	"rockusb 0 ${devtype} ${devnum};" \
+	"fastboot usb 0;"
+#else
+#define RKIMG_BOOTCOMMAND \
+	"run distro_bootcmd;" \
 	"boot_android ${devtype} ${devnum};" \
 	"bootrkp;"
-
+#endif
 #endif
 
 #define CONFIG_DISPLAY_BOARDINFO_LATE

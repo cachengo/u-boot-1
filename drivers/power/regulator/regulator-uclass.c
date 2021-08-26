@@ -244,6 +244,20 @@ int device_get_supply_regulator(struct udevice *dev, const char *supply_name,
 					    supply_name, devp);
 }
 
+static int regulator_init_suspend(struct udevice *dev)
+{
+	struct dm_regulator_uclass_platdata *uc_pdata;
+	int ret;
+
+	uc_pdata = dev_get_uclass_platdata(dev);
+
+	ret = regulator_set_suspend_enable(dev, uc_pdata->suspend_on);
+	if (!ret && uc_pdata->suspend_on)
+		return regulator_set_suspend_value(dev, uc_pdata->suspend_uV);
+
+	return 0;
+}
+
 int regulator_autoset(struct udevice *dev)
 {
 	struct dm_regulator_uclass_platdata *uc_pdata;
@@ -254,16 +268,6 @@ int regulator_autoset(struct udevice *dev)
 	if (uc_pdata->ramp_delay != -ENODATA)
 		regulator_set_ramp_delay(dev, uc_pdata->ramp_delay);
 
-	/*
-	 * Suspend configure is not necessary and should not influence normal
-	 * configure, so that we set "ret=0" even failed here.
-	 */
-	ret = regulator_set_suspend_enable(dev, uc_pdata->suspend_on);
-	if (!ret && uc_pdata->suspend_on)
-		regulator_set_suspend_value(dev, uc_pdata->suspend_uV);
-	else
-		ret = 0;
-
 	if (!uc_pdata->always_on && !uc_pdata->boot_on)
 		return -EMEDIUMTYPE;
 
@@ -272,7 +276,8 @@ int regulator_autoset(struct udevice *dev)
 	} else {
 		if ((uc_pdata->type == REGULATOR_TYPE_BUCK) &&
 		    (uc_pdata->min_uV != -ENODATA) &&
-		    (uc_pdata->max_uV != -ENODATA))
+		    (uc_pdata->max_uV != -ENODATA) &&
+		    (uc_pdata->init_uV <= 0))
 			printf("%s %d uV\n",
 			       uc_pdata->name, regulator_get_value(dev));
 	}
@@ -280,7 +285,7 @@ int regulator_autoset(struct udevice *dev)
 	if (uc_pdata->init_uV > 0) {
 		ret = regulator_set_value(dev, uc_pdata->init_uV);
 		if (!ret)
-			printf("regulator(%s) init %d uV\n",
+			printf("%s init %d uV\n",
 			       dev->name, uc_pdata->init_uV);
 	}
 
@@ -464,6 +469,31 @@ static int regulator_pre_probe(struct udevice *dev)
 	return 0;
 }
 
+int regulators_enable_state_mem(bool verbose)
+{
+	struct udevice *dev;
+	struct uclass *uc;
+	int ret;
+
+	ret = uclass_get(UCLASS_REGULATOR, &uc);
+	if (ret)
+		return ret;
+	for (uclass_first_device(UCLASS_REGULATOR, &dev);
+	     dev;
+	     uclass_next_device(&dev)) {
+		ret = regulator_init_suspend(dev);
+
+		if (ret == -EMEDIUMTYPE)
+			ret = 0;
+		if (verbose)
+			regulator_show(dev, ret);
+		if (ret == -ENOSYS)
+			ret = 0;
+	}
+
+	return ret;
+}
+
 int regulators_enable_boot_on(bool verbose)
 {
 	struct udevice *dev;
@@ -477,6 +507,7 @@ int regulators_enable_boot_on(bool verbose)
 	     dev;
 	     uclass_next_device(&dev)) {
 		ret = regulator_autoset(dev);
+
 		if (ret == -EMEDIUMTYPE)
 			ret = 0;
 		if (verbose)

@@ -16,7 +16,6 @@
 #include <fs.h>
 #include <asm/io.h>
 #include <version.h>
-#include <libfdt.h>
 
 #include "menu.h"
 #include "cli.h"
@@ -25,7 +24,6 @@
 #define NO_DEFINE	2
 #define VALUE_ON 	1
 #define VALUE_OFF 	0
-
 
 const char *pxe_default_paths[] = {
 #ifdef CONFIG_SYS_SOC
@@ -59,7 +57,8 @@ struct dts_overlay_array
 //	int dtbo_param:1; // flag: 0 1
 //	struct dtbo_param_array dtbo_param_name[MAX_DTBO_PARAM_NUNBER];
 };
-#if CONFIG_OF_LIBFDT_OVERLAY
+#ifdef CONFIG_OF_LIBFDT_OVERLAY
+#ifdef CONFIG_TARGET_ROCKPI4_RK3399
 struct hw_config
 {
 	int valid;
@@ -75,7 +74,12 @@ struct hw_config
 	struct dts_overlay_array dts_overlay[MAX_DTS_OVERLAY_NUMBER];
 	int dts_overlay_count;
 };
-
+#else
+struct hw_config
+{
+	int valid;
+};
+#endif
 extern void parse_hw_config(cmd_tbl_t *cmdtp, struct hw_config *hw_conf);
 #endif
 /*
@@ -643,7 +647,9 @@ static int label_localboot(struct pxe_label *label)
 
 	return run_command_list(localcmd, strlen(localcmd), 0);
 }
+
 #ifdef CONFIG_OF_LIBFDT_OVERLAY
+#ifdef CONFIG_TARGET_ROCKPI4_RK3399
 static int set_hw_property(struct fdt_header *working_fdt, char *path, char *property, char *value, int length)
 {
 	int offset;
@@ -799,7 +805,7 @@ static void handle_hw_conf(cmd_tbl_t *cmdtp, struct fdt_header *working_fdt, str
 			}
 		}
 	}
-
+#ifdef CONFIG_TARGET_ROCKPI4_RK3399
 	if(hw_conf->pwm0 == VALUE_ON)
 	{
 		set_hw_property(working_fdt, "/pwm@ff420000", "status", "okay", 5);
@@ -916,7 +922,9 @@ static void handle_hw_conf(cmd_tbl_t *cmdtp, struct fdt_header *working_fdt, str
 		//default disable
 		set_hw_property(working_fdt, "/i2c@ff160000", "status", "disabled", 9);
 	}
+#endif
 }
+#endif
 #endif
 
 /*
@@ -945,6 +953,7 @@ static int label_boot(cmd_tbl_t *cmdtp, struct pxe_label *label)
 	ulong kernel_addr;
 	void *buf;
 #ifdef CONFIG_OF_LIBFDT_OVERLAY
+#ifdef CONFIG_TARGET_ROCKPI4_RK3399
 	struct hw_config hw_conf;
 	int i;
 
@@ -982,6 +991,7 @@ static int label_boot(cmd_tbl_t *cmdtp, struct pxe_label *label)
 			}
 		}
 	}
+#endif
 #endif
 	label_print(label);
 
@@ -1128,7 +1138,9 @@ static int label_boot(cmd_tbl_t *cmdtp, struct pxe_label *label)
 
 		if (fdtfile) {
 #ifdef CONFIG_OF_LIBFDT_OVERLAY
+#ifdef CONFIG_TARGET_ROCKPI4_RK3399
 			struct fdt_header *working_fdt;
+#endif
 #endif
 			int err = get_relfile_envaddr(cmdtp, fdtfile, "fdt_addr_r");
 			free(fdtfilefree);
@@ -1138,6 +1150,7 @@ static int label_boot(cmd_tbl_t *cmdtp, struct pxe_label *label)
 				return 1;
 			}
 #ifdef CONFIG_OF_LIBFDT_OVERLAY
+#ifdef CONFIG_TARGET_ROCKPI4_RK3399
 			working_fdt = resize_working_fdt();
 			if(working_fdt != NULL)
 			{
@@ -1146,6 +1159,7 @@ static int label_boot(cmd_tbl_t *cmdtp, struct pxe_label *label)
 					handle_hw_conf(cmdtp, working_fdt, &hw_conf);
 				}
 			}
+#endif
 #endif
 		} else {
 			bootm_argv[3] = NULL;

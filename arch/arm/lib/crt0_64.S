@@ -83,6 +83,7 @@ ENTRY(_main)
 	/* set up gd here, outside any C code */
 	mov	x18, x0
 	bl	board_init_f_init_reserve
+	bl	board_init_f_init_serial
 
 	mov	x0, #0
 	bl	board_init_f
@@ -97,6 +98,7 @@ ENTRY(_main)
 	bic	sp, x0, #0xf	/* 16-byte alignment for ABI compliance */
 	ldr	x18, [x18, #GD_NEW_GD]		/* x18 <- gd->new_gd */
 
+#ifndef CONFIG_SKIP_RELOCATE_UBOOT
 	adr	lr, relocation_return
 #if CONFIG_POSITION_INDEPENDENT
 	/* Add in link-vs-runtime offset */
@@ -110,6 +112,7 @@ ENTRY(_main)
 	add	lr, lr, x9	/* new return address after relocation */
 	ldr	x0, [x18, #GD_RELOCADDR]	/* x0 <- gd->relocaddr */
 	b	relocate_code
+#endif
 
 relocation_return:
 

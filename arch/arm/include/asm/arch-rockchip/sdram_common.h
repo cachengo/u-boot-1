@@ -17,6 +17,12 @@ enum {
 	UNUSED = 0xFF
 };
 
+struct ddr_param {
+	u32 count;
+	u32 reserved;
+	u64 para[8];
+};
+
 /*
  * sys_reg bitfield struct
  * [31]		row_3_4_ch1
@@ -78,15 +84,15 @@ enum {
 #define SYS_REG1_CS1_COL_SHIFT(ch)		(0 + (ch) * 2)
 #define SYS_REG1_CS1_COL_MASK			3
 
-#define BROM_BOOTSOURCE_ID_ADDR (CONFIG_ROCKCHIP_IRAM_START_ADDR + 0x10)
-
 /* Get sdram size decode from reg */
 size_t rockchip_sdram_size(phys_addr_t reg);
+unsigned int get_page_size(void);
+unsigned int get_ddr_bw(void);
 
 /* Called by U-Boot board_init_r for Rockchip SoCs */
 int dram_init(void);
 
 /* Write ddr param to a known place for trustos */
-int rockchip_setup_ddr_param(struct ram_info *info);
+int rockchip_setup_ddr_param(struct ddr_param *info);
 
 #endif

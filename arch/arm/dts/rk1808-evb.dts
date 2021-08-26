@@ -14,15 +14,21 @@
 	model = "Rockchip RK1808 EVB";
 	compatible = "rockchip,rk1808-evb", "rockchip,rk1808";
 
-	chosen {
-		stdout-path = &uart2;
-	};
+	adc-keys {
+		status = "okay";
 
-	xin24m: xin24m {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <24000000>;
-		clock-output-names = "xin24m";
+		u-boot,dm-pre-reloc;
+		compatible = "adc-keys";
+		io-channels = <&saradc 2>;
+		io-channel-names = "buttons";
+		keyup-threshold-microvolt = <1800000>;
+
+		vol-up-key {
+			u-boot,dm-pre-reloc;
+			linux,code = <KEY_VOLUMEUP>;
+			label = "volume up";
+			press-threshold-microvolt = <10000>;
+		};
 	};
 };
 
@@ -38,15 +44,7 @@
 	status = "okay";
 };
 
-&sdmmc {
-	supports-sd;
-	status = "disabled";
-};
-
 &uart2 {
 	clock-frequency = <24000000>;
-	clocks = <&xin24m>, <&xin24m>;
-	clock-names = "baudclk", "apb_pclk";
-
 	status = "okay";
 };

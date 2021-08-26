@@ -13,7 +13,6 @@
 #include <fs.h>
 #include <asm/io.h>
 #include <version.h>
-#include <libfdt.h>
 
 #include "menu.h"
 #include "cli.h"
@@ -40,6 +39,7 @@ struct dts_overlay_array
 //	struct dtbo_param_array dtbo_param_name[MAX_DTBO_PARAM_NUNBER];
 };
 
+#ifdef CONFIG_TARGET_ROCKPI4_RK3399
 struct hw_config
 {
 	int valid;
@@ -55,6 +55,12 @@ struct hw_config
 	struct dts_overlay_array dts_overlay[MAX_DTS_OVERLAY_NUMBER];
 	int dts_overlay_count;
 };
+#else
+struct hw_config
+{
+	int valid;
+};
+#endif
 
 extern char *from_env(const char *envvar);
 extern int get_relfile(cmd_tbl_t *cmdtp, const char *file_path, unsigned long file_addr);
@@ -89,6 +95,7 @@ static unsigned long hw_skip_line(char *text)
 static unsigned long get_value(char *text, struct hw_config *hw_conf)
 {
 	int i = 0;
+#ifdef CONFIG_TARGET_ROCKPI4_RK3399
 	if(memcmp(text, "pwm0=",  5) == 0)
 	{
 		i = 5;
@@ -294,6 +301,8 @@ invalid_line:
 		if(*(text + (i++)) == 0x0a)
 			break;
 	}
+	return i;
+#endif
 	return i;
 }
 

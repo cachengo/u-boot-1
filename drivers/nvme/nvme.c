@@ -53,9 +53,9 @@ static int nvme_wait_ready(struct nvme_dev *dev, bool enabled)
 	u32 bit = enabled ? NVME_CSTS_RDY : 0;
 	int timeout;
 	ulong start;
-
+        printf("^^^^^^^JIMMY WAS HERE^^^^^^");
 	/* Timeout field in the CAP register is in 500 millisecond units */
-	timeout = NVME_CAP_TIMEOUT(dev->cap) * 500;
+	timeout = NVME_CAP_TIMEOUT(dev->cap) * 1000;
 
 	start = get_timer(0);
 	while (get_timer(start) < timeout) {
