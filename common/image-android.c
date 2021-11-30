@@ -1,26 +1,22 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2011 Sebastian Andrzej Siewior <bigeasy@linutronix.de>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
+#include <env.h>
 #include <image.h>
+#include <image-android-dt.h>
 #include <android_image.h>
 #include <malloc.h>
-#include <mapmem.h>
 #include <errno.h>
-#ifdef CONFIG_RKIMG_BOOTLOADER
-#include <asm/arch/resource_img.h>
-#endif
-
-DECLARE_GLOBAL_DATA_PTR;
+#include <asm/unaligned.h>
+#include <mapmem.h>
+#include <linux/libfdt.h>
 
 #define ANDROID_IMAGE_DEFAULT_KERNEL_ADDR	0x10008000
-#define ANDROID_ARG_FDT_FILENAME "rk-kernel.dtb"
 
 static char andr_tmp_str[ANDR_BOOT_ARGS_SIZE + 1];
-static u32 android_kernel_comp_type = IH_COMP_NONE;
 
 static ulong android_image_get_kernel_addr(const struct andr_img_hdr *hdr)
 {
@@ -38,23 +34,14 @@ static ulong android_image_get_kernel_addr(const struct andr_img_hdr *hdr)
 	if (hdr->kernel_addr == ANDROID_IMAGE_DEFAULT_KERNEL_ADDR)
 		return (ulong)hdr + hdr->page_size;
 
+	/*
+	 * abootimg creates images where all load addresses are 0
+	 * and we need to fix them.
+	 */
+	if (hdr->kernel_addr == 0 && hdr->ramdisk_addr == 0)
+		return env_get_ulong("kernel_addr_r", 16, 0);
+
 	return hdr->kernel_addr;
-}
-
-void android_image_set_comp(struct andr_img_hdr *hdr, u32 comp)
-{
-	android_kernel_comp_type = comp;
-}
-
-u32 android_image_get_comp(const struct andr_img_hdr *hdr)
-{
-	return android_kernel_comp_type;
-}
-
-int android_image_parse_kernel_comp(const struct andr_img_hdr *hdr)
-{
-	ulong kaddr = android_image_get_kernel_addr(hdr);
-	return bootm_parse_comp((const unsigned char *)kaddr);
 }
 
 /**
@@ -76,6 +63,8 @@ int android_image_get_kernel(const struct andr_img_hdr *hdr, int verify,
 			     ulong *os_data, ulong *os_len)
 {
 	u32 kernel_addr = android_image_get_kernel_addr(hdr);
+	const struct image_header *ihdr = (const struct image_header *)
+		((uintptr_t)hdr + hdr->page_size);
 
 	/*
 	 * Not all Android tools use the id field for signing the image with
@@ -92,7 +81,7 @@ int android_image_get_kernel(const struct andr_img_hdr *hdr, int verify,
 
 	int len = 0;
 	if (*hdr->cmdline) {
-		debug("Kernel command line: %s\n", hdr->cmdline);
+		printf("Kernel command line: %s\n", hdr->cmdline);
 		len += strlen(hdr->cmdline);
 	}
 
@@ -117,11 +106,19 @@ int android_image_get_kernel(const struct andr_img_hdr *hdr, int verify,
 	env_set("bootargs", newbootargs);
 
 	if (os_data) {
-		*os_data = (ulong)hdr;
-		*os_data += hdr->page_size;
+		if (image_get_magic(ihdr) == IH_MAGIC) {
+			*os_data = image_get_data(ihdr);
+		} else {
+			*os_data = (ulong)hdr;
+			*os_data += hdr->page_size;
+		}
 	}
-	if (os_len)
-		*os_len = hdr->kernel_size;
+	if (os_len) {
+		if (image_get_magic(ihdr) == IH_MAGIC)
+			*os_len = image_get_data_size(ihdr);
+		else
+			*os_len = hdr->kernel_size;
+	}
 	return 0;
 }
 
@@ -133,6 +130,7 @@ int android_image_check_header(const struct andr_img_hdr *hdr)
 ulong android_image_get_end(const struct andr_img_hdr *hdr)
 {
 	ulong end;
+
 	/*
 	 * The header takes a full page, the remaining components are aligned
 	 * on page boundary
@@ -146,22 +144,27 @@ ulong android_image_get_end(const struct andr_img_hdr *hdr)
 	if (hdr->header_version >= 1)
 		end += ALIGN(hdr->recovery_dtbo_size, hdr->page_size);
 
+	if (hdr->header_version >= 2)
+		end += ALIGN(hdr->dtb_size, hdr->page_size);
+
 	return end;
-}
-
-u32 android_image_get_ksize(const struct andr_img_hdr *hdr)
-{
-	return hdr->kernel_size;
-}
-
-void android_image_set_kload(struct andr_img_hdr *hdr, u32 load_address)
-{
-	hdr->kernel_addr = load_address;
 }
 
 ulong android_image_get_kload(const struct andr_img_hdr *hdr)
 {
 	return android_image_get_kernel_addr(hdr);
+}
+
+ulong android_image_get_kcomp(const struct andr_img_hdr *hdr)
+{
+	const void *p = (void *)((uintptr_t)hdr + hdr->page_size);
+
+	if (image_get_magic((image_header_t *)p) == IH_MAGIC)
+		return image_get_comp((image_header_t *)p);
+	else if (get_unaligned_le32(p) == LZ4F_MAGIC)
+		return IH_COMP_LZ4;
+	else
+		return image_decomp_type(p, sizeof(u32));
 }
 
 int android_image_get_ramdisk(const struct andr_img_hdr *hdr,
@@ -183,118 +186,199 @@ int android_image_get_ramdisk(const struct andr_img_hdr *hdr,
 	return 0;
 }
 
-int android_image_get_fdt(const struct andr_img_hdr *hdr,
-			      ulong *rd_data)
+int android_image_get_second(const struct andr_img_hdr *hdr,
+			      ulong *second_data, ulong *second_len)
 {
 	if (!hdr->second_size) {
-		*rd_data = 0;
+		*second_data = *second_len = 0;
 		return -1;
 	}
 
-	printf("FDT load addr 0x%08x size %u KiB\n",
-	       hdr->second_addr, DIV_ROUND_UP(hdr->second_size, 1024));
-/*
- * Actually we have read kernel dtb in init_kernel_dtb() and do overlay
- * when CONFIG_USING_KERNEL_DTB is enbled, and we also didn't update it at all.
- * So that we pass current fdt blob to kernel, otherwise we have to do overlay
- * again which wastes time.
- */
-#if defined(CONFIG_OF_LIBFDT_OVERLAY) && defined(CONFIG_USING_KERNEL_DTB)
-	*rd_data = (ulong)gd->fdt_blob;
-#else
-	*rd_data = (unsigned long)hdr;
-	*rd_data += hdr->page_size;
-	*rd_data += ALIGN(hdr->kernel_size, hdr->page_size);
-	*rd_data += ALIGN(hdr->ramdisk_size, hdr->page_size);
-#ifdef CONFIG_RKIMG_BOOTLOADER
-	*rd_data += (rockchip_get_resource_file((void *)*rd_data,
-		     ANDROID_ARG_FDT_FILENAME))
-			* 512;
-#endif
-#endif
+	*second_data = (unsigned long)hdr;
+	*second_data += hdr->page_size;
+	*second_data += ALIGN(hdr->kernel_size, hdr->page_size);
+	*second_data += ALIGN(hdr->ramdisk_size, hdr->page_size);
 
+	printf("second address is 0x%lx\n",*second_data);
+
+	*second_len = hdr->second_size;
 	return 0;
 }
 
-long android_image_load(struct blk_desc *dev_desc,
-			const disk_partition_t *part_info,
-			unsigned long load_address,
-			unsigned long max_size) {
-	void *buf;
-	long blk_cnt = 0;
-	long blk_read = 0;
-	u32 comp;
-	u32 kload_addr;
+/**
+ * android_image_get_dtbo() - Get address and size of recovery DTBO image.
+ * @hdr_addr: Boot image header address
+ * @addr: If not NULL, will contain address of recovery DTBO image
+ * @size: If not NULL, will contain size of recovery DTBO image
+ *
+ * Get the address and size of DTBO image in "Recovery DTBO" area of Android
+ * Boot Image in RAM. The format of this image is Android DTBO (see
+ * corresponding "DTB/DTBO Partitions" AOSP documentation for details). Once
+ * the address is obtained from this function, one can use 'adtimg' U-Boot
+ * command or android_dt_*() functions to extract desired DTBO blob.
+ *
+ * This DTBO (included in boot image) is only needed for non-A/B devices, and it
+ * only can be found in recovery image. On A/B devices we can always rely on
+ * "dtbo" partition. See "Including DTBO in Recovery for Non-A/B Devices" in
+ * AOSP documentation for details.
+ *
+ * Return: true on success or false on error.
+ */
+bool android_image_get_dtbo(ulong hdr_addr, ulong *addr, u32 *size)
+{
+	const struct andr_img_hdr *hdr;
+	ulong dtbo_img_addr;
+	bool ret = true;
 
-	if (max_size < part_info->blksz)
-		return -1;
-
-	/* We don't know the size of the Android image before reading the header
-	 * so we don't limit the size of the mapped memory.
-	 */
-	buf = map_sysmem(load_address, 0 /* size */);
-
-	/* Read the Android boot.img header and a few parts of
-	 * the head of kernel image.
-	 */
-	if (blk_dread(dev_desc, part_info->start, 8, buf) != 8)
-		blk_read = -1;
-
-	if (!blk_read && android_image_check_header(buf) != 0) {
-		printf("** Invalid Android Image header **\n");
-		blk_read = -1;
+	hdr = map_sysmem(hdr_addr, sizeof(*hdr));
+	if (android_image_check_header(hdr)) {
+		printf("Error: Boot Image header is incorrect\n");
+		ret = false;
+		goto exit;
 	}
 
-
-	if (!blk_read) {
-		blk_cnt = (android_image_get_end(buf) - (ulong)buf +
-			   part_info->blksz - 1) / part_info->blksz;
-		comp = android_image_parse_kernel_comp(buf);
-		/*
-		 * We should load a compressed kernel Image
-		 * to high memory
-		 */
-		if (comp != IH_COMP_NONE) {
-			load_address += android_image_get_ksize(buf) * 3;
-			load_address = env_get_ulong("kernel_addr_c", 16, load_address);
-			unmap_sysmem(buf);
-			buf = map_sysmem(load_address, 0 /* size */);
-		}
-
-		if (blk_cnt * part_info->blksz > max_size) {
-			debug("Android Image too big (%lu bytes, max %lu)\n",
-			      android_image_get_end(buf) - (ulong)buf,
-			      max_size);
-			blk_read = -1;
-		} else {
-			debug("Loading Android Image (%lu blocks) to 0x%lx... ",
-			      blk_cnt, load_address);
-			blk_read = blk_dread(dev_desc, part_info->start,
-					     blk_cnt, buf);
-		}
-
-		/*
-		 * zImage is not need to decompress
-		 * kernel will handle decompress itself
-		 */
-		if (comp != IH_COMP_NONE && comp != IH_COMP_ZIMAGE) {
-			kload_addr = env_get_ulong("kernel_addr_r", 16, 0x02080000);
-			android_image_set_kload(buf, kload_addr);
-			android_image_set_comp(buf, comp);
-		} else {
-			android_image_set_comp(buf, IH_COMP_NONE);
-		}
-
+	if (hdr->header_version < 1) {
+		printf("Error: header_version must be >= 1 to get dtbo\n");
+		ret = false;
+		goto exit;
 	}
 
-	unmap_sysmem(buf);
+	if (hdr->recovery_dtbo_size == 0) {
+		printf("Error: recovery_dtbo_size is 0\n");
+		ret = false;
+		goto exit;
+	}
 
-	debug("%lu blocks read: %s\n",
-	      blk_read, (blk_read == blk_cnt) ? "OK" : "ERROR");
-	if (blk_read != blk_cnt)
-		return -1;
+	/* Calculate the address of DTB area in boot image */
+	dtbo_img_addr = hdr_addr;
+	dtbo_img_addr += hdr->page_size;
+	dtbo_img_addr += ALIGN(hdr->kernel_size, hdr->page_size);
+	dtbo_img_addr += ALIGN(hdr->ramdisk_size, hdr->page_size);
+	dtbo_img_addr += ALIGN(hdr->second_size, hdr->page_size);
 
-	return load_address;
+	if (addr)
+		*addr = dtbo_img_addr;
+	if (size)
+		*size = hdr->recovery_dtbo_size;
+
+exit:
+	unmap_sysmem(hdr);
+	return ret;
+}
+
+/**
+ * android_image_get_dtb_img_addr() - Get the address of DTB area in boot image.
+ * @hdr_addr: Boot image header address
+ * @addr: Will contain the address of DTB area in boot image
+ *
+ * Return: true on success or false on fail.
+ */
+static bool android_image_get_dtb_img_addr(ulong hdr_addr, ulong *addr)
+{
+	const struct andr_img_hdr *hdr;
+	ulong dtb_img_addr;
+	bool ret = true;
+
+	hdr = map_sysmem(hdr_addr, sizeof(*hdr));
+	if (android_image_check_header(hdr)) {
+		printf("Error: Boot Image header is incorrect\n");
+		ret = false;
+		goto exit;
+	}
+
+	if (hdr->header_version < 2) {
+		printf("Error: header_version must be >= 2 to get dtb\n");
+		ret = false;
+		goto exit;
+	}
+
+	if (hdr->dtb_size == 0) {
+		printf("Error: dtb_size is 0\n");
+		ret = false;
+		goto exit;
+	}
+
+	/* Calculate the address of DTB area in boot image */
+	dtb_img_addr = hdr_addr;
+	dtb_img_addr += hdr->page_size;
+	dtb_img_addr += ALIGN(hdr->kernel_size, hdr->page_size);
+	dtb_img_addr += ALIGN(hdr->ramdisk_size, hdr->page_size);
+	dtb_img_addr += ALIGN(hdr->second_size, hdr->page_size);
+	dtb_img_addr += ALIGN(hdr->recovery_dtbo_size, hdr->page_size);
+
+	*addr = dtb_img_addr;
+
+exit:
+	unmap_sysmem(hdr);
+	return ret;
+}
+
+/**
+ * android_image_get_dtb_by_index() - Get address and size of blob in DTB area.
+ * @hdr_addr: Boot image header address
+ * @index: Index of desired DTB in DTB area (starting from 0)
+ * @addr: If not NULL, will contain address to specified DTB
+ * @size: If not NULL, will contain size of specified DTB
+ *
+ * Get the address and size of DTB blob by its index in DTB area of Android
+ * Boot Image in RAM.
+ *
+ * Return: true on success or false on error.
+ */
+bool android_image_get_dtb_by_index(ulong hdr_addr, u32 index, ulong *addr,
+				    u32 *size)
+{
+	const struct andr_img_hdr *hdr;
+	bool res;
+	ulong dtb_img_addr;	/* address of DTB part in boot image */
+	u32 dtb_img_size;	/* size of DTB payload in boot image */
+	ulong dtb_addr;		/* address of DTB blob with specified index  */
+	u32 i;			/* index iterator */
+
+	res = android_image_get_dtb_img_addr(hdr_addr, &dtb_img_addr);
+	if (!res)
+		return false;
+
+	/* Check if DTB area of boot image is in DTBO format */
+	if (android_dt_check_header(dtb_img_addr)) {
+		return android_dt_get_fdt_by_index(dtb_img_addr, index, addr,
+						   size);
+	}
+
+	/* Find out the address of DTB with specified index in concat blobs */
+	hdr = map_sysmem(hdr_addr, sizeof(*hdr));
+	dtb_img_size = hdr->dtb_size;
+	unmap_sysmem(hdr);
+	i = 0;
+	dtb_addr = dtb_img_addr;
+	while (dtb_addr < dtb_img_addr + dtb_img_size) {
+		const struct fdt_header *fdt;
+		u32 dtb_size;
+
+		fdt = map_sysmem(dtb_addr, sizeof(*fdt));
+		if (fdt_check_header(fdt) != 0) {
+			unmap_sysmem(fdt);
+			printf("Error: Invalid FDT header for index %u\n", i);
+			return false;
+		}
+
+		dtb_size = fdt_totalsize(fdt);
+		unmap_sysmem(fdt);
+
+		if (i == index) {
+			if (size)
+				*size = dtb_size;
+			if (addr)
+				*addr = dtb_addr;
+			return true;
+		}
+
+		dtb_addr += dtb_size;
+		++i;
+	}
+
+	printf("Error: Index is out of bounds (%u/%u)\n", index, i);
+	return false;
 }
 
 #if !defined(CONFIG_SPL_BUILD)
@@ -315,30 +399,141 @@ void android_print_contents(const struct andr_img_hdr *hdr)
 	/* os_version = ver << 11 | lvl */
 	u32 os_ver = hdr->os_version >> 11;
 	u32 os_lvl = hdr->os_version & ((1U << 11) - 1);
-	u32 header_version = hdr->header_version;
 
-	printf("%skernel size:      %x\n", p, hdr->kernel_size);
-	printf("%skernel address:   %x\n", p, hdr->kernel_addr);
-	printf("%sramdisk size:     %x\n", p, hdr->ramdisk_size);
-	printf("%sramdisk addrress: %x\n", p, hdr->ramdisk_addr);
-	printf("%ssecond size:      %x\n", p, hdr->second_size);
-	printf("%ssecond address:   %x\n", p, hdr->second_addr);
-	printf("%stags address:     %x\n", p, hdr->tags_addr);
-	printf("%spage size:        %x\n", p, hdr->page_size);
-	printf("%sheader_version:   %x\n", p, header_version);
+	printf("%skernel size:          %x\n", p, hdr->kernel_size);
+	printf("%skernel address:       %x\n", p, hdr->kernel_addr);
+	printf("%sramdisk size:         %x\n", p, hdr->ramdisk_size);
+	printf("%sramdisk address:      %x\n", p, hdr->ramdisk_addr);
+	printf("%ssecond size:          %x\n", p, hdr->second_size);
+	printf("%ssecond address:       %x\n", p, hdr->second_addr);
+	printf("%stags address:         %x\n", p, hdr->tags_addr);
+	printf("%spage size:            %x\n", p, hdr->page_size);
 	/* ver = A << 14 | B << 7 | C         (7 bits for each of A, B, C)
 	 * lvl = ((Y - 2000) & 127) << 4 | M  (7 bits for Y, 4 bits for M) */
-	printf("%sos_version:       %x (ver: %u.%u.%u, level: %u.%u)\n",
+	printf("%sos_version:           %x (ver: %u.%u.%u, level: %u.%u)\n",
 	       p, hdr->os_version,
 	       (os_ver >> 7) & 0x7F, (os_ver >> 14) & 0x7F, os_ver & 0x7F,
 	       (os_lvl >> 4) + 2000, os_lvl & 0x0F);
-	printf("%sname:             %s\n", p, hdr->name);
-	printf("%scmdline:          %s\n", p, hdr->cmdline);
+	printf("%sname:                 %s\n", p, hdr->name);
+	printf("%scmdline:              %s\n", p, hdr->cmdline);
+	printf("%sheader_version:       %d\n", p, hdr->header_version);
 
-	if (header_version >= 1) {
-		printf("%srecovery dtbo size:    %x\n", p, hdr->recovery_dtbo_size);
-		printf("%srecovery dtbo offset:  %llx\n", p, hdr->recovery_dtbo_offset);
-		printf("%sheader size:           %x\n", p, hdr->header_size);
+	if (hdr->header_version >= 1) {
+		printf("%srecovery dtbo size:   %x\n", p,
+		       hdr->recovery_dtbo_size);
+		printf("%srecovery dtbo offset: %llx\n", p,
+		       hdr->recovery_dtbo_offset);
+		printf("%sheader size:          %x\n", p,
+		       hdr->header_size);
 	}
+
+	if (hdr->header_version >= 2) {
+		printf("%sdtb size:             %x\n", p, hdr->dtb_size);
+		printf("%sdtb addr:             %llx\n", p, hdr->dtb_addr);
+	}
+}
+
+/**
+ * android_image_print_dtb_info - Print info for one DTB blob in DTB area.
+ * @fdt: DTB header
+ * @index: Number of DTB blob in DTB area.
+ *
+ * Return: true on success or false on error.
+ */
+static bool android_image_print_dtb_info(const struct fdt_header *fdt,
+					 u32 index)
+{
+	int root_node_off;
+	u32 fdt_size;
+	const char *model;
+	const char *compatible;
+
+	root_node_off = fdt_path_offset(fdt, "/");
+	if (root_node_off < 0) {
+		printf("Error: Root node not found\n");
+		return false;
+	}
+
+	fdt_size = fdt_totalsize(fdt);
+	compatible = fdt_getprop(fdt, root_node_off, "compatible",
+				 NULL);
+	model = fdt_getprop(fdt, root_node_off, "model", NULL);
+
+	printf(" - DTB #%u:\n", index);
+	printf("           (DTB)size = %d\n", fdt_size);
+	printf("          (DTB)model = %s\n", model ? model : "(unknown)");
+	printf("     (DTB)compatible = %s\n",
+	       compatible ? compatible : "(unknown)");
+
+	return true;
+}
+
+/**
+ * android_image_print_dtb_contents() - Print info for DTB blobs in DTB area.
+ * @hdr_addr: Boot image header address
+ *
+ * DTB payload in Android Boot Image v2+ can be in one of following formats:
+ *   1. Concatenated DTB blobs
+ *   2. Android DTBO format (see CONFIG_CMD_ADTIMG for details)
+ *
+ * This function does next:
+ *   1. Prints out the format used in DTB area
+ *   2. Iterates over all DTB blobs in DTB area and prints out the info for
+ *      each blob.
+ *
+ * Return: true on success or false on error.
+ */
+bool android_image_print_dtb_contents(ulong hdr_addr)
+{
+	const struct andr_img_hdr *hdr;
+	bool res;
+	ulong dtb_img_addr;	/* address of DTB part in boot image */
+	u32 dtb_img_size;	/* size of DTB payload in boot image */
+	ulong dtb_addr;		/* address of DTB blob with specified index  */
+	u32 i;			/* index iterator */
+
+	res = android_image_get_dtb_img_addr(hdr_addr, &dtb_img_addr);
+	if (!res)
+		return false;
+
+	/* Check if DTB area of boot image is in DTBO format */
+	if (android_dt_check_header(dtb_img_addr)) {
+		printf("## DTB area contents (DTBO format):\n");
+		android_dt_print_contents(dtb_img_addr);
+		return true;
+	}
+
+	printf("## DTB area contents (concat format):\n");
+
+	/* Iterate over concatenated DTB blobs */
+	hdr = map_sysmem(hdr_addr, sizeof(*hdr));
+	dtb_img_size = hdr->dtb_size;
+	unmap_sysmem(hdr);
+	i = 0;
+	dtb_addr = dtb_img_addr;
+	while (dtb_addr < dtb_img_addr + dtb_img_size) {
+		const struct fdt_header *fdt;
+		u32 dtb_size;
+
+		fdt = map_sysmem(dtb_addr, sizeof(*fdt));
+		if (fdt_check_header(fdt) != 0) {
+			unmap_sysmem(fdt);
+			printf("Error: Invalid FDT header for index %u\n", i);
+			return false;
+		}
+
+		res = android_image_print_dtb_info(fdt, i);
+		if (!res) {
+			unmap_sysmem(fdt);
+			return false;
+		}
+
+		dtb_size = fdt_totalsize(fdt);
+		unmap_sysmem(fdt);
+		dtb_addr += dtb_size;
+		++i;
+	}
+
+	return true;
 }
 #endif

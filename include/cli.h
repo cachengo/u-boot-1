@@ -1,8 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2014 Google, Inc
  * Simon Glass <sjg@chromium.org>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __CLI_H
@@ -35,8 +34,10 @@ int cli_simple_run_command(const char *cmd, int flag);
  *
  * @param input		Input string possible containing $() / ${} vars
  * @param output	Output string with $() / ${} vars expanded
+ * @param max_size	Maximum size of @output (including terminator)
+ * @return 0 if OK, -ENOSPC if we ran out of space in @output
  */
-void cli_simple_process_macros(const char *input, char *output);
+int cli_simple_process_macros(const char *input, char *output, int max_size);
 
 /**
  * cli_simple_run_command_list() - Execute a list of command

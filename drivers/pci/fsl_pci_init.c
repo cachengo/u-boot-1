@@ -1,12 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2007-2012 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
+#include <env.h>
+#include <init.h>
+#include <log.h>
 #include <malloc.h>
 #include <asm/fsl_serdes.h>
+#include <asm/global_data.h>
+#include <linux/delay.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -27,6 +31,8 @@ DECLARE_GLOBAL_DATA_PTR;
 #include <pci.h>
 #include <asm/io.h>
 #include <asm/fsl_pci.h>
+
+#define MAX_PCI_REGIONS 7
 
 #ifndef CONFIG_SYS_PCI_MEMORY_BUS
 #define CONFIG_SYS_PCI_MEMORY_BUS 0
@@ -75,6 +81,9 @@ int fsl_setup_hose(struct pci_controller *hose, unsigned long addr)
 
 	/* Reset hose to make sure its in a clean state */
 	memset(hose, 0, sizeof(struct pci_controller));
+
+	hose->regions = (struct pci_region *)
+		calloc(1, MAX_PCI_REGIONS * sizeof(struct pci_region));
 
 	pci_setup_indirect(hose, (u32)&pci->cfg_addr, (u32)&pci->cfg_data);
 
@@ -322,6 +331,12 @@ void fsl_pci_init(struct pci_controller *hose, struct fsl_pci_info *pci_info)
 
 	pci_setup_indirect(hose, cfg_addr, cfg_data);
 
+#ifdef PEX_CCB_DIV
+	/* Configure the PCIE controller core clock ratio */
+	pci_hose_write_config_dword(hose, dev, 0x440,
+				    ((gd->bus_clk / 1000000) *
+				     (16 / PEX_CCB_DIV)) / 333);
+#endif
 	block_rev = in_be32(&pci->block_rev1);
 	if (PEX_IP_BLK_REV_2_2 <= block_rev) {
 		pi = &pci->pit[2];	/* 0xDC0 */
@@ -870,7 +885,7 @@ int fsl_pcie_init_board(int busno)
 	setbits_be32(addr, _DEVDISR_PCIE4); /* disable */
 #endif
 
- 	return busno;
+	return busno;
 }
 #else
 int fsl_pcie_init_ctrl(int busno, u32 devdisr, enum srds_prtcl dev,
@@ -886,7 +901,7 @@ int fsl_pcie_init_board(int busno)
 #endif
 
 #ifdef CONFIG_OF_BOARD_SETUP
-#include <libfdt.h>
+#include <linux/libfdt.h>
 #include <fdt_support.h>
 
 void ft_fsl_pci_setup(void *blob, const char *pci_compat,

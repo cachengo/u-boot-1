@@ -1,13 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * g_dnl.c -- USB Downloader Gadget
  *
  * Copyright (C) 2012 Samsung Electronics
  * Lukasz Majewski  <l.majewski@samsung.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
+#include <log.h>
 #include <malloc.h>
 
 #include <mmc.h>
@@ -26,9 +26,9 @@
 
 /*
  * One needs to define the following:
- * CONFIG_G_DNL_VENDOR_NUM
- * CONFIG_G_DNL_PRODUCT_NUM
- * CONFIG_G_DNL_MANUFACTURER
+ * CONFIG_USB_GADGET_VENDOR_NUM
+ * CONFIG_USB_GADGET_PRODUCT_NUM
+ * CONFIG_USB_GADGET_MANUFACTURER
  * at e.g. ./configs/<board>_defconfig
  */
 
@@ -46,7 +46,7 @@
 
 static const char product[] = "USB download gadget";
 static char g_dnl_serial[MAX_STRING_SERIAL];
-static const char manufacturer[] = CONFIG_G_DNL_MANUFACTURER;
+static const char manufacturer[] = CONFIG_USB_GADGET_MANUFACTURER;
 
 void g_dnl_set_serialnumber(char *s)
 {
@@ -62,8 +62,8 @@ static struct usb_device_descriptor device_desc = {
 	.bDeviceClass = USB_CLASS_PER_INTERFACE,
 	.bDeviceSubClass = 0, /*0x02:CDC-modem , 0x00:CDC-serial*/
 
-	.idVendor = __constant_cpu_to_le16(CONFIG_G_DNL_VENDOR_NUM),
-	.idProduct = __constant_cpu_to_le16(CONFIG_G_DNL_PRODUCT_NUM),
+	.idVendor = __constant_cpu_to_le16(CONFIG_USB_GADGET_VENDOR_NUM),
+	.idProduct = __constant_cpu_to_le16(CONFIG_USB_GADGET_PRODUCT_NUM),
 	/* .iProduct = DYNAMIC */
 	/* .iSerialNumber = DYNAMIC */
 	.bNumConfigurations = 1,
@@ -89,6 +89,14 @@ static struct usb_gadget_strings *g_dnl_composite_strings[] = {
 	&g_dnl_string_tab,
 	NULL,
 };
+
+void g_dnl_set_product(const char *s)
+{
+	if (s)
+		g_dnl_string_defs[1].s = s;
+	else
+		g_dnl_string_defs[1].s = product;
+}
 
 static int g_dnl_unbind(struct usb_composite_dev *cdev)
 {
@@ -278,6 +286,7 @@ static struct usb_composite_driver g_dnl_driver = {
 	.name = NULL,
 	.dev = &device_desc,
 	.strings = g_dnl_composite_strings,
+	.max_speed = USB_SPEED_SUPER,
 
 	.bind = g_dnl_bind,
 	.unbind = g_dnl_unbind,

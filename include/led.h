@@ -1,12 +1,13 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (c) 2015 Google, Inc
  * Written by Simon Glass <sjg@chromium.org>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __LED_H
 #define __LED_H
+
+struct udevice;
 
 /**
  * struct led_uc_plat - Platform data the uclass stores about each device
@@ -106,5 +107,14 @@ enum led_state_t led_get_state(struct udevice *dev);
  * @return 0 if OK, -ve on error
  */
 int led_set_period(struct udevice *dev, int period_ms);
+
+/**
+ * led_default_state() - set the default state for all the LED
+ *
+ * This enables all leds which have default state.
+ * see Documentation/devicetree/bindings/leds/common.txt
+ *
+ */
+int led_default_state(void);
 
 #endif

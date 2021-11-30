@@ -1,9 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (C) 2013 Samsung Electronics
  *
  * Common configuration settings for the SAMSUNG EXYNOS boards.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __EXYNOS_COMMON_H
@@ -15,9 +14,7 @@
 
 #include <asm/arch/cpu.h>		/* get chip and board defs */
 #include <linux/sizes.h>
-
-#define CONFIG_ARCH_CPU_INIT
-#define CONFIG_SKIP_LOWLEVEL_INIT
+#include <linux/stringify.h>
 
 /* Keep L2 Cache Disabled */
 
@@ -25,18 +22,7 @@
 #define CONFIG_SYS_CLK_FREQ		24000000
 #define COUNTER_FREQUENCY		CONFIG_SYS_CLK_FREQ
 
-#define CONFIG_SETUP_MEMORY_TAGS
-#define CONFIG_CMDLINE_TAG
-#define CONFIG_INITRD_TAG
-#define CONFIG_ENV_OVERWRITE
-
-/* Size of malloc() pool before and after relocation */
-#define CONFIG_SYS_MALLOC_LEN		(CONFIG_ENV_SIZE + (80 << 20))
-
 /* select serial console configuration */
-
-/* SD/MMC configuration */
-#define CONFIG_BOUNCE_BUFFER
 
 /* PWM */
 #define CONFIG_PWM
@@ -47,7 +33,5 @@
 
 /* Boot Argument Buffer Size */
 #define CONFIG_SYS_BARGSIZE		CONFIG_SYS_CBSIZE
-
-#include <config_distro_defaults.h>
 
 #endif	/* __CONFIG_H */

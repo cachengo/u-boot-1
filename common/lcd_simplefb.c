@@ -1,17 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Simplefb device tree support
  *
  * (C) Copyright 2015
  * Stephen Warren <swarren@wwwdotorg.org>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
 #include <dm.h>
 #include <lcd.h>
 #include <fdt_support.h>
-#include <libfdt.h>
+#include <asm/global_data.h>
+#include <linux/libfdt.h>
 #include <video.h>
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -23,7 +23,7 @@ static int lcd_dt_simplefb_configure_node(void *blob, int off)
 	const char *name;
 	ulong fb_base;
 #ifdef CONFIG_DM_VIDEO
-	struct video_uc_platdata *plat;
+	struct video_uc_plat *plat;
 	struct video_priv *uc_priv;
 	struct udevice *dev;
 	int ret;
@@ -32,7 +32,7 @@ static int lcd_dt_simplefb_configure_node(void *blob, int off)
 	if (ret)
 		return ret;
 	uc_priv = dev_get_uclass_priv(dev);
-	plat = dev_get_uclass_platdata(dev);
+	plat = dev_get_uclass_plat(dev);
 	xsize = uc_priv->xsize;
 	ysize = uc_priv->ysize;
 	bpix = uc_priv->bpix;

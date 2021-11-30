@@ -1,8 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (C) 2015 Google, Inc
  * Written by Simon Glass <sjg@chromium.org>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _PMIC_RK8XX_H_
@@ -192,6 +191,16 @@ enum {
 	RK818_ID = 0x8180,
 };
 
+enum {
+	RK817_POWER_EN0 = 0xb1,
+	RK817_POWER_EN1,
+	RK817_POWER_EN2,
+	RK817_POWER_EN3,
+};
+
+#define RK817_POWER_EN_SAVE0	0x99
+#define RK817_POWER_EN_SAVE1	0xa4
+
 #define RK817_ID_MSB	0xed
 #define RK817_ID_LSB	0xee
 #define RK8XX_ID_MSK	0xfff0
@@ -201,6 +210,7 @@ enum {
 
 #define RK8XX_ON_SOURCE		0xae
 #define RK8XX_OFF_SOURCE	0xaf
+#define RK817_BUCK4_CMIN	0xc6
 #define RK817_ON_SOURCE		0xf5
 #define RK817_OFF_SOURCE	0xf6
 
@@ -209,7 +219,6 @@ struct reg_data {
 	u8 val;
 	u8 mask;
 };
-
 struct rk8xx_reg_table {
 	char *name;
 	u8 reg_ctl;

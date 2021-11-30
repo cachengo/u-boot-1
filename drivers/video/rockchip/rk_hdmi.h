@@ -1,7 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (c) 2017 Theobroma Systems Design und Consulting GmbH
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __RK_HDMI_H__
@@ -53,12 +52,12 @@ int rk_hdmi_read_edid(struct udevice *dev, u8 *buf, int buf_size);
 void rk_hdmi_probe_regulators(struct udevice *dev,
 			      const char * const *names, int cnt);
 /**
- * rk_hdmi_ofdata_to_platdata() - common ofdata_to_platdata implementation
+ * rk_hdmi_of_to_plat() - common of_to_plat implementation
  *
  * @dev:	device
  * @return 0 if OK, -ve if something went wrong
  */
-int rk_hdmi_ofdata_to_platdata(struct udevice *dev);
+int rk_hdmi_of_to_plat(struct udevice *dev);
 
 /**
  * rk_hdmi_probe() - common probe implementation

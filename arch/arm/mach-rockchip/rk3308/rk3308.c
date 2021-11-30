@@ -1,16 +1,20 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * Copyright (c) 2018 Rockchip Electronics Co., Ltd
- *
- * SPDX-License-Identifier:     GPL-2.0+
+ *Copyright (c) 2018 Rockchip Electronics Co., Ltd
  */
 #include <common.h>
+#include <init.h>
+#include <malloc.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch/grf_rk3308.h>
-#include <asm/arch/hardware.h>
+#include <asm/arch-rockchip/hardware.h>
 #include <asm/gpio.h>
 #include <debug_uart.h>
+#include <linux/bitops.h>
 
-#ifdef CONFIG_ARM64
+DECLARE_GLOBAL_DATA_PTR;
+
 #include <asm/armv8/mmu.h>
 static struct mm_region rk3308_mem_map[] = {
 	{
@@ -33,12 +37,11 @@ static struct mm_region rk3308_mem_map[] = {
 };
 
 struct mm_region *mem_map = rk3308_mem_map;
-#endif
 
 #define GRF_BASE	0xff000000
+#define SGRF_BASE	0xff2b0000
 
 enum {
-
 	GPIO1C7_SHIFT		= 8,
 	GPIO1C7_MASK		= GENMASK(11, 8),
 	GPIO1C7_GPIO		= 0,
@@ -72,6 +75,49 @@ enum {
 	UART2_IO_SEL_M0		= 0,
 	UART2_IO_SEL_M1,
 	UART2_IO_SEL_USB,
+
+	GPIO2C0_SEL_SRC_CTRL_SHIFT	= 11,
+	GPIO2C0_SEL_SRC_CTRL_MASK	= BIT(11),
+	GPIO2C0_SEL_SRC_CTRL_IOMUX	= 0,
+	GPIO2C0_SEL_SRC_CTRL_SEL_PLUS,
+
+	GPIO3B3_SEL_SRC_CTRL_SHIFT	= 7,
+	GPIO3B3_SEL_SRC_CTRL_MASK	= BIT(7),
+	GPIO3B3_SEL_SRC_CTRL_IOMUX	= 0,
+	GPIO3B3_SEL_SRC_CTRL_SEL_PLUS,
+
+	GPIO3B3_SEL_PLUS_SHIFT		= 4,
+	GPIO3B3_SEL_PLUS_MASK		= GENMASK(6, 4),
+	GPIO3B3_SEL_PLUS_GPIO3_B3	= 0,
+	GPIO3B3_SEL_PLUS_FLASH_ALE,
+	GPIO3B3_SEL_PLUS_EMMC_PWREN,
+	GPIO3B3_SEL_PLUS_SPI1_CLK,
+	GPIO3B3_SEL_PLUS_LCDC_D23_M1,
+
+	GPIO3B2_SEL_SRC_CTRL_SHIFT	= 3,
+	GPIO3B2_SEL_SRC_CTRL_MASK	= BIT(3),
+	GPIO3B2_SEL_SRC_CTRL_IOMUX	= 0,
+	GPIO3B2_SEL_SRC_CTRL_SEL_PLUS,
+
+	GPIO3B2_SEL_PLUS_SHIFT		= 0,
+	GPIO3B2_SEL_PLUS_MASK		= GENMASK(2, 0),
+	GPIO3B2_SEL_PLUS_GPIO3_B2	= 0,
+	GPIO3B2_SEL_PLUS_FLASH_RDN,
+	GPIO3B2_SEL_PLUS_EMMC_RSTN,
+	GPIO3B2_SEL_PLUS_SPI1_MISO,
+	GPIO3B2_SEL_PLUS_LCDC_D22_M1,
+
+	I2C3_IOFUNC_SRC_CTRL_SHIFT	= 10,
+	I2C3_IOFUNC_SRC_CTRL_MASK	= BIT(10),
+	I2C3_IOFUNC_SRC_CTRL_SEL_PLUS	= 1,
+
+	GPIO2A3_SEL_SRC_CTRL_SHIFT	= 7,
+	GPIO2A3_SEL_SRC_CTRL_MASK	= BIT(7),
+	GPIO2A3_SEL_SRC_CTRL_SEL_PLUS	= 1,
+
+	GPIO2A2_SEL_SRC_CTRL_SHIFT	= 3,
+	GPIO2A2_SEL_SRC_CTRL_MASK	= BIT(3),
+	GPIO2A2_SEL_SRC_CTRL_SEL_PLUS	= 1,
 };
 
 enum {
@@ -104,8 +150,8 @@ int rk_board_init(void)
 
 	ret = gpio_request(GPIO0_A4, "gpio0_a4");
 	if (ret < 0) {
-		debug("request for gpio0_a4 failed:%d\n", ret);
-		return ret;
+		printf("request for gpio0_a4 failed:%d\n", ret);
+		return 0;
 	}
 
 	gpio_direction_input(GPIO0_A4);
@@ -118,10 +164,12 @@ int rk_board_init(void)
 		      VCCIO3_3V3 << IOVSEL3_SHIFT;
 	rk_clrsetreg(&grf->soc_con0, IOVSEL3_CTRL_MASK | IOVSEL3_MASK, val);
 
+	gpio_free(GPIO0_A4);
 	return 0;
 }
 
-void board_debug_uart_init(void)
+#if defined(CONFIG_DEBUG_UART)
+__weak void board_debug_uart_init(void)
 {
 	static struct rk3308_grf * const grf = (void *)GRF_BASE;
 
@@ -133,3 +181,36 @@ void board_debug_uart_init(void)
 		     GPIO4D2_UART2_RX_M1 << GPIO4D2_SHIFT |
 		     GPIO4D3_UART2_TX_M1 << GPIO4D3_SHIFT);
 }
+#endif
+
+#if defined(CONFIG_SPL_BUILD)
+int arch_cpu_init(void)
+{
+	static struct rk3308_sgrf * const sgrf = (void *)SGRF_BASE;
+	static struct rk3308_grf * const grf = (void *)GRF_BASE;
+
+	/* Set CRYPTO SDMMC EMMC NAND SFC USB master bus to be secure access */
+	rk_clrreg(&sgrf->con_secure0, 0x2b83);
+
+	/*
+	 * Enable plus options to use more pinctrl functions, including
+	 * GPIO2A2_PLUS, GPIO2A3_PLUS and I2C3_MULTI_SRC_PLUS.
+	 */
+	rk_clrsetreg(&grf->soc_con13,
+		     I2C3_IOFUNC_SRC_CTRL_MASK | GPIO2A3_SEL_SRC_CTRL_MASK |
+		     GPIO2A2_SEL_SRC_CTRL_MASK,
+		     I2C3_IOFUNC_SRC_CTRL_SEL_PLUS << I2C3_IOFUNC_SRC_CTRL_SHIFT |
+		     GPIO2A3_SEL_SRC_CTRL_SEL_PLUS << GPIO2A3_SEL_SRC_CTRL_SHIFT |
+		     GPIO2A2_SEL_SRC_CTRL_SEL_PLUS << GPIO2A2_SEL_SRC_CTRL_SHIFT);
+
+	/* Plus options about GPIO3B2_PLUS, GPIO3B3_PLUS and GPIO2C0_PLUS. */
+	rk_clrsetreg(&grf->soc_con15,
+		     GPIO2C0_SEL_SRC_CTRL_MASK | GPIO3B3_SEL_SRC_CTRL_MASK |
+		     GPIO3B2_SEL_SRC_CTRL_MASK,
+		     GPIO2C0_SEL_SRC_CTRL_SEL_PLUS << GPIO2C0_SEL_SRC_CTRL_SHIFT |
+		     GPIO3B3_SEL_SRC_CTRL_SEL_PLUS << GPIO3B3_SEL_SRC_CTRL_SHIFT |
+		     GPIO3B2_SEL_SRC_CTRL_SEL_PLUS << GPIO3B2_SEL_SRC_CTRL_SHIFT);
+
+	return 0;
+}
+#endif

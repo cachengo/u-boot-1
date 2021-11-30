@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2013, Google Inc.
  *
@@ -5,22 +6,29 @@
  *
  * (C) Copyright 2000-2006
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
-#include <fdtdec.h>
 #include <fdt_support.h>
+#include <fdtdec.h>
+#include <env.h>
 #include <errno.h>
 #include <image.h>
-#include <libfdt.h>
+#include <lmb.h>
+#include <log.h>
+#include <malloc.h>
+#include <asm/global_data.h>
+#include <linux/libfdt.h>
 #include <mapmem.h>
 #include <asm/io.h>
+#include <tee/optee.h>
 
 #ifndef CONFIG_SYS_FDT_PAD
 #define CONFIG_SYS_FDT_PAD 0x3000
 #endif
+
+/* adding a ramdisk needs 0x44 bytes in version 2008.10 */
+#define FDT_RAMDISK_OVERHEAD	0x80
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -31,7 +39,7 @@ static void fdt_error(const char *msg)
 	puts(" - must RESET the board to recover.\n");
 }
 
-#if defined(CONFIG_IMAGE_FORMAT_LEGACY)
+#if CONFIG_IS_ENABLED(LEGACY_IMAGE_FORMAT)
 static const image_header_t *image_get_fdt(ulong fdt_addr)
 {
 	const image_header_t *fdt_hdr = map_sysmem(fdt_addr, 0);
@@ -66,55 +74,73 @@ static const image_header_t *image_get_fdt(ulong fdt_addr)
 }
 #endif
 
+static void boot_fdt_reserve_region(struct lmb *lmb, uint64_t addr,
+				    uint64_t size, enum lmb_flags flags)
+{
+	long ret;
+
+	ret = lmb_reserve_flags(lmb, addr, size, flags);
+	if (ret >= 0) {
+		debug("   reserving fdt memory region: addr=%llx size=%llx flags=%x\n",
+		      (unsigned long long)addr,
+		      (unsigned long long)size, flags);
+	} else {
+		puts("ERROR: reserving fdt memory region failed ");
+		printf("(addr=%llx size=%llx flags=%x)\n",
+		       (unsigned long long)addr,
+		       (unsigned long long)size, flags);
+	}
+}
+
 /**
- * boot_fdt_add_mem_rsv_regions - Mark the memreserve sections as unusable
+ * boot_fdt_add_mem_rsv_regions - Mark the memreserve and reserved-memory
+ * sections as unusable
  * @lmb: pointer to lmb handle, will be used for memory mgmt
  * @fdt_blob: pointer to fdt blob base address
  *
- * Adds the memreserve regions in the dtb to the lmb block.  Adding the
- * memreserve regions prevents u-boot from using them to store the initrd
- * or the fdt blob.
+ * Adds the and reserved-memorymemreserve regions in the dtb to the lmb block.
+ * Adding the memreserve regions prevents u-boot from using them to store the
+ * initrd or the fdt blob.
  */
 void boot_fdt_add_mem_rsv_regions(struct lmb *lmb, void *fdt_blob)
 {
 	uint64_t addr, size;
-	int i, total;
-	int rsv_offset, offset;
-	fdt_size_t rsv_size;
-	fdt_addr_t rsv_addr;
-	/* we needn't repeat do reserve, do_bootm_linux would call this again */
-	static int rsv_done;
+	int i, total, ret;
+	int nodeoffset, subnode;
+	struct fdt_resource res;
+	enum lmb_flags flags;
 
-	if (fdt_check_header(fdt_blob) != 0 || rsv_done)
+	if (fdt_check_header(fdt_blob) != 0)
 		return;
 
-	rsv_done = 1;
-
+	/* process memreserve sections */
 	total = fdt_num_mem_rsv(fdt_blob);
 	for (i = 0; i < total; i++) {
 		if (fdt_get_mem_rsv(fdt_blob, i, &addr, &size) != 0)
 			continue;
-		printf("   reserving fdt memory region: addr=%llx size=%llx\n",
-		       (unsigned long long)addr, (unsigned long long)size);
-		lmb_reserve(lmb, addr, size);
+		boot_fdt_reserve_region(lmb, addr, size, LMB_NONE);
 	}
 
-	rsv_offset = fdt_subnode_offset(fdt_blob, 0, "reserved-memory");
-	if (rsv_offset == -FDT_ERR_NOTFOUND)
-		return;
+	/* process reserved-memory */
+	nodeoffset = fdt_subnode_offset(fdt_blob, 0, "reserved-memory");
+	if (nodeoffset >= 0) {
+		subnode = fdt_first_subnode(fdt_blob, nodeoffset);
+		while (subnode >= 0) {
+			/* check if this subnode has a reg property */
+			ret = fdt_get_resource(fdt_blob, subnode, "reg", 0,
+					       &res);
+			if (!ret && fdtdec_get_is_enabled(fdt_blob, subnode)) {
+				flags = LMB_NONE;
+				if (fdtdec_get_bool(fdt_blob, subnode,
+						    "no-map"))
+					flags = LMB_NOMAP;
+				addr = res.start;
+				size = res.end - res.start + 1;
+				boot_fdt_reserve_region(lmb, addr, size, flags);
+			}
 
-	for (offset = fdt_first_subnode(fdt_blob, rsv_offset);
-	     offset >= 0;
-	     offset = fdt_next_subnode(fdt_blob, offset)) {
-		rsv_addr = fdtdec_get_addr_size_auto_noparent(fdt_blob, offset,
-							      "reg", 0,
-							      &rsv_size, false);
-		if (rsv_addr == FDT_ADDR_T_NONE || !rsv_size)
-			continue;
-		printf("  'reserved-memory' %s: addr=%llx size=%llx\n",
-			fdt_get_name(fdt_blob, offset, NULL),
-			(unsigned long long)rsv_addr, (unsigned long long)rsv_size);
-		lmb_reserve(lmb, rsv_addr, rsv_size);
+			subnode = fdt_next_subnode(fdt_blob, subnode);
+		}
 	}
 }
 
@@ -160,7 +186,7 @@ int boot_relocate_fdt(struct lmb *lmb, char **of_flat_tree, ulong *of_size)
 	/* If fdt_high is set use it to select the relocation address */
 	fdt_high = env_get("fdt_high");
 	if (fdt_high) {
-		void *desired_addr = (void *)simple_strtoul(fdt_high, NULL, 16);
+		void *desired_addr = (void *)hextoul(fdt_high, NULL);
 
 		if (((ulong) desired_addr) == ~0UL) {
 			/* All ones means use fdt in place */
@@ -217,7 +243,8 @@ int boot_relocate_fdt(struct lmb *lmb, char **of_flat_tree, ulong *of_size)
 	*of_flat_tree = of_start;
 	*of_size = of_len;
 
-	set_working_fdt_addr((ulong)*of_flat_tree);
+	if (CONFIG_IS_ENABLED(CMD_FDT))
+		set_working_fdt_addr(map_to_sysmem(*of_flat_tree));
 	return 0;
 
 error:
@@ -225,55 +252,29 @@ error:
 }
 
 /**
- * boot_get_fdt - main fdt handling routine
- * @argc: command argument count
- * @argv: command argument list
- * @arch: architecture (IH_ARCH_...)
+ * select_fdt() - Select and locate the FDT to use
+ *
  * @images: pointer to the bootm images structure
- * @of_flat_tree: pointer to a char* variable, will hold fdt start address
- * @of_size: pointer to a ulong variable, will hold fdt length
- *
- * boot_get_fdt() is responsible for finding a valid flat device tree image.
- * Curently supported are the following ramdisk sources:
- *      - multicomponent kernel/ramdisk image,
- *      - commandline provided address of decicated ramdisk image.
- *
- * returns:
- *     0, if fdt image was found and valid, or skipped
- *     of_flat_tree and of_size are set to fdt start address and length if
- *     fdt image is found and valid
- *
- *     1, if fdt image is found but corrupted
- *     of_flat_tree and of_size are set to 0 if no fdt exists
+ * @select: name of FDT to select, or NULL for any
+ * @arch: expected FDT architecture
+ * @fdt_addrp: pointer to a ulong variable, will hold FDT pointer
+ * @return 0 if OK, -ENOPKG if no FDT (but an error should not be reported),
+ *	other -ve value on other error
  */
-int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
-		bootm_headers_t *images, char **of_flat_tree, ulong *of_size)
+
+static int select_fdt(bootm_headers_t *images, const char *select, u8 arch,
+		      ulong *fdt_addrp)
 {
-#if defined(CONFIG_IMAGE_FORMAT_LEGACY)
-	const image_header_t *fdt_hdr;
-	ulong		load, load_end;
-	ulong		image_start, image_data, image_end;
-#endif
-	ulong		fdt_addr;
-	char		*fdt_blob = NULL;
-	void		*buf;
-#if CONFIG_IS_ENABLED(FIT)
-	const char	*fit_uname_config = images->fit_uname_cfg;
-	const char	*fit_uname_fdt = NULL;
-	ulong		default_addr;
-	int		fdt_noffset;
-#endif
-	const char *select = NULL;
-	int		ok_no_fdt = 0;
+	const char *buf;
+	ulong fdt_addr;
 
-	*of_flat_tree = NULL;
-	*of_size = 0;
-
-	if (argc > 2)
-		select = argv[2];
-	if (select || genimg_has_config(images)) {
 #if CONFIG_IS_ENABLED(FIT)
-		if (select) {
+	const char *fit_uname_config = images->fit_uname_cfg;
+	const char *fit_uname_fdt = NULL;
+	ulong default_addr;
+	int fdt_noffset;
+
+	if (select) {
 			/*
 			 * If the FDT blob comes from the FIT image and the
 			 * FIT image address is omitted in the command line
@@ -285,56 +286,59 @@ int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
 			else if (images->fit_uname_os)
 				default_addr = (ulong)images->fit_hdr_os;
 			else
-				default_addr = load_addr;
+				default_addr = image_load_addr;
 
-			if (fit_parse_conf(select, default_addr,
-					   &fdt_addr, &fit_uname_config)) {
+			if (fit_parse_conf(select, default_addr, &fdt_addr,
+					   &fit_uname_config)) {
 				debug("*  fdt: config '%s' from image at 0x%08lx\n",
 				      fit_uname_config, fdt_addr);
-			} else if (fit_parse_subimage(select, default_addr,
-				   &fdt_addr, &fit_uname_fdt)) {
+			} else if (fit_parse_subimage(select, default_addr, &fdt_addr,
+				   &fit_uname_fdt)) {
 				debug("*  fdt: subimage '%s' from image at 0x%08lx\n",
 				      fit_uname_fdt, fdt_addr);
 			} else
 #endif
-			{
-				fdt_addr = simple_strtoul(select, NULL, 16);
-				debug("*  fdt: cmdline image address = 0x%08lx\n",
-				      fdt_addr);
-			}
-#if CONFIG_IS_ENABLED(FIT)
-		} else {
-			/* use FIT configuration provided in first bootm
-			 * command argument
-			 */
-			fdt_addr = map_to_sysmem(images->fit_hdr_os);
-			fdt_noffset = fit_get_node_from_config(images,
-							       FIT_FDT_PROP,
-							       fdt_addr);
-			if (fdt_noffset == -ENOENT)
-				return 0;
-			else if (fdt_noffset < 0)
-				return 1;
+		{
+			fdt_addr = hextoul(select, NULL);
+			debug("*  fdt: cmdline image address = 0x%08lx\n",
+			      fdt_addr);
 		}
-#endif
-		debug("## Checking for 'FDT'/'FDT Image' at %08lx\n",
-		      fdt_addr);
-
-		/*
-		 * Check if there is an FDT image at the
-		 * address provided in the second bootm argument
-		 * check image type, for FIT images get a FIT node.
+#if CONFIG_IS_ENABLED(FIT)
+	} else {
+		/* use FIT configuration provided in first bootm
+		 * command argument
 		 */
-		buf = map_sysmem(fdt_addr, 0);
-		switch (genimg_get_format(buf)) {
-#if defined(CONFIG_IMAGE_FORMAT_LEGACY)
-		case IMAGE_FORMAT_LEGACY:
+		fdt_addr = map_to_sysmem(images->fit_hdr_os);
+		fdt_noffset = fit_get_node_from_config(images, FIT_FDT_PROP,
+						       fdt_addr);
+		if (fdt_noffset == -ENOENT)
+			return -ENOPKG;
+		else if (fdt_noffset < 0)
+			return fdt_noffset;
+	}
+#endif
+	debug("## Checking for 'FDT'/'FDT Image' at %08lx\n",
+	      fdt_addr);
+
+	/*
+	 * Check if there is an FDT image at the
+	 * address provided in the second bootm argument
+	 * check image type, for FIT images get a FIT node.
+	 */
+	buf = map_sysmem(fdt_addr, 0);
+	switch (genimg_get_format(buf)) {
+#if CONFIG_IS_ENABLED(LEGACY_IMAGE_FORMAT)
+	case IMAGE_FORMAT_LEGACY: {
+			const image_header_t *fdt_hdr;
+			ulong load, load_end;
+			ulong image_start, image_data, image_end;
+
 			/* verify fdt_addr points to a valid image header */
 			printf("## Flattened Device Tree from Legacy Image at %08lx\n",
 			       fdt_addr);
 			fdt_hdr = image_get_fdt(fdt_addr);
 			if (!fdt_hdr)
-				goto no_fdt;
+				return -ENOPKG;
 
 			/*
 			 * move image data to the load address,
@@ -355,7 +359,7 @@ int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
 
 			if ((load < image_end) && (load_end > image_start)) {
 				fdt_error("fdt overwritten");
-				goto error;
+				return -EFAULT;
 			}
 
 			debug("   Loading FDT from 0x%08lx to 0x%08lx\n",
@@ -367,22 +371,26 @@ int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
 
 			fdt_addr = load;
 			break;
+		}
 #endif
-		case IMAGE_FORMAT_FIT:
-			/*
-			 * This case will catch both: new uImage format
-			 * (libfdt based) and raw FDT blob (also libfdt
-			 * based).
-			 */
+	case IMAGE_FORMAT_FIT:
+		/*
+		 * This case will catch both: new uImage format
+		 * (libfdt based) and raw FDT blob (also libfdt
+		 * based).
+		 */
 #if CONFIG_IS_ENABLED(FIT)
 			/* check FDT blob vs FIT blob */
-			if (fit_check_format(buf)) {
+			if (!fit_check_format(buf, IMAGE_SIZE_INVAL)) {
 				ulong load, len;
 
-				fdt_noffset = boot_get_fdt_fit(images,
-					fdt_addr, &fit_uname_fdt,
-					&fit_uname_config,
-					arch, &load, &len);
+				fdt_noffset = boot_get_fdt_fit(images, fdt_addr,
+							       &fit_uname_fdt,
+							       &fit_uname_config,
+							       arch, &load, &len);
+
+				if (fdt_noffset < 0)
+					return -ENOENT;
 
 				images->fit_hdr_fdt = map_sysmem(fdt_addr, 0);
 				images->fit_uname_fdt = fit_uname_fdt;
@@ -390,22 +398,73 @@ int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
 				fdt_addr = load;
 
 				break;
-			} else
+		} else
 #endif
-			{
-				/*
-				 * FDT blob
-				 */
-				debug("*  fdt: raw FDT blob\n");
-				printf("## Flattened Device Tree blob at %08lx\n",
-				       (long)fdt_addr);
-			}
-			break;
-		default:
-			puts("ERROR: Did not find a cmdline Flattened Device Tree\n");
-			goto no_fdt;
+		{
+			/*
+			 * FDT blob
+			 */
+			debug("*  fdt: raw FDT blob\n");
+			printf("## Flattened Device Tree blob at %08lx\n",
+			       (long)fdt_addr);
 		}
+		break;
+	default:
+		puts("ERROR: Did not find a cmdline Flattened Device Tree\n");
+		return -ENOENT;
+	}
+	*fdt_addrp = fdt_addr;
 
+	return 0;
+}
+
+/**
+ * boot_get_fdt - main fdt handling routine
+ * @argc: command argument count
+ * @argv: command argument list
+ * @arch: architecture (IH_ARCH_...)
+ * @images: pointer to the bootm images structure
+ * @of_flat_tree: pointer to a char* variable, will hold fdt start address
+ * @of_size: pointer to a ulong variable, will hold fdt length
+ *
+ * boot_get_fdt() is responsible for finding a valid flat device tree image.
+ * Currently supported are the following ramdisk sources:
+ *      - multicomponent kernel/ramdisk image,
+ *      - commandline provided address of decicated ramdisk image.
+ *
+ * returns:
+ *     0, if fdt image was found and valid, or skipped
+ *     of_flat_tree and of_size are set to fdt start address and length if
+ *     fdt image is found and valid
+ *
+ *     1, if fdt image is found but corrupted
+ *     of_flat_tree and of_size are set to 0 if no fdt exists
+ */
+int boot_get_fdt(int flag, int argc, char *const argv[], uint8_t arch,
+		 bootm_headers_t *images, char **of_flat_tree, ulong *of_size)
+{
+	ulong		img_addr;
+	ulong		fdt_addr;
+	char		*fdt_blob = NULL;
+	void		*buf;
+	const char *select = NULL;
+
+	*of_flat_tree = NULL;
+	*of_size = 0;
+
+	img_addr = (argc == 0) ? image_load_addr : hextoul(argv[0], NULL);
+	buf = map_sysmem(img_addr, 0);
+
+	if (argc > 2)
+		select = argv[2];
+	if (select || genimg_has_config(images)) {
+		int ret;
+
+		ret = select_fdt(images, select, arch, &fdt_addr);
+		if (ret == -ENOPKG)
+			goto no_fdt;
+		else if (ret)
+			return 1;
 		printf("   Booting using the fdt blob at %#08lx\n", fdt_addr);
 		fdt_blob = map_sysmem(fdt_addr, 0);
 	} else if (images->legacy_hdr_valid &&
@@ -439,6 +498,40 @@ int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
 			debug("## No Flattened Device Tree\n");
 			goto no_fdt;
 		}
+#ifdef CONFIG_ANDROID_BOOT_IMAGE
+	} else if (genimg_get_format(buf) == IMAGE_FORMAT_ANDROID) {
+		struct andr_img_hdr *hdr = buf;
+		ulong		fdt_data, fdt_len;
+		u32			fdt_size, dtb_idx;
+		/*
+		 * Firstly check if this android boot image has dtb field.
+		 */
+		dtb_idx = (u32)env_get_ulong("adtb_idx", 10, 0);
+		if (android_image_get_dtb_by_index((ulong)hdr, dtb_idx, &fdt_addr, &fdt_size)) {
+			fdt_blob = (char *)map_sysmem(fdt_addr, 0);
+			if (fdt_check_header(fdt_blob))
+				goto no_fdt;
+
+			debug("## Using FDT in Android image dtb area with idx %u\n", dtb_idx);
+		} else if (!android_image_get_second(hdr, &fdt_data, &fdt_len) &&
+			!fdt_check_header((char *)fdt_data)) {
+			fdt_blob = (char *)fdt_data;
+			if (fdt_totalsize(fdt_blob) != fdt_len)
+				goto error;
+
+			debug("## Using FDT in Android image second area\n");
+		} else {
+			fdt_addr = env_get_hex("fdtaddr", 0);
+			if (!fdt_addr)
+				goto no_fdt;
+
+			fdt_blob = map_sysmem(fdt_addr, 0);
+			if (fdt_check_header(fdt_blob))
+				goto no_fdt;
+
+			debug("## Using FDT at ${fdtaddr}=Ox%lx\n", fdt_addr);
+		}
+#endif
 	} else {
 		debug("## No Flattened Device Tree\n");
 		goto no_fdt;
@@ -452,14 +545,9 @@ int boot_get_fdt(int flag, int argc, char * const argv[], uint8_t arch,
 	return 0;
 
 no_fdt:
-	ok_no_fdt = 1;
+	debug("Continuing to boot without FDT\n");
+	return 0;
 error:
-	*of_flat_tree = NULL;
-	*of_size = 0;
-	if (!select && ok_no_fdt) {
-		debug("Continuing to boot without FDT\n");
-		return 0;
-	}
 	return 1;
 }
 
@@ -480,6 +568,11 @@ __weak int ft_verify_fdt(void *fdt)
 	return 1;
 }
 
+__weak int arch_fixup_fdt(void *blob)
+{
+	return 0;
+}
+
 int image_setup_libfdt(bootm_headers_t *images, void *blob,
 		       int of_size, struct lmb *lmb)
 {
@@ -487,12 +580,11 @@ int image_setup_libfdt(bootm_headers_t *images, void *blob,
 	ulong *initrd_end = &images->initrd_end;
 	int ret = -EPERM;
 	int fdt_ret;
-#if defined(CONFIG_PASS_DEVICE_SERIAL_BY_FDT)
+
 	if (fdt_root(blob) < 0) {
 		printf("ERROR: root node setup failed\n");
 		goto err;
 	}
-#endif
 	if (fdt_chosen(blob) < 0) {
 		printf("ERROR: /chosen node create failed\n");
 		goto err;
@@ -501,17 +593,36 @@ int image_setup_libfdt(bootm_headers_t *images, void *blob,
 		printf("ERROR: arch-specific fdt fixup failed\n");
 		goto err;
 	}
+
+	fdt_ret = optee_copy_fdt_nodes(blob);
+	if (fdt_ret) {
+		printf("ERROR: transfer of optee nodes to new fdt failed: %s\n",
+		       fdt_strerror(fdt_ret));
+		goto err;
+	}
+
 	/* Update ethernet nodes */
 	fdt_fixup_ethernet(blob);
-	if (IMAGE_OF_BOARD_SETUP) {
-		fdt_ret = ft_board_setup(blob, gd->bd);
-		if (fdt_ret) {
-			printf("ERROR: board-specific fdt fixup failed: %s\n",
-			       fdt_strerror(fdt_ret));
-			goto err;
+#if CONFIG_IS_ENABLED(CMD_PSTORE)
+	/* Append PStore configuration */
+	fdt_fixup_pstore(blob);
+#endif
+	if (IS_ENABLED(CONFIG_OF_BOARD_SETUP)) {
+		const char *skip_board_fixup;
+
+		skip_board_fixup = env_get("skip_board_fixup");
+		if (skip_board_fixup && ((int)simple_strtol(skip_board_fixup, NULL, 10) == 1)) {
+			printf("skip board fdt fixup\n");
+		} else {
+			fdt_ret = ft_board_setup(blob, gd->bd);
+			if (fdt_ret) {
+				printf("ERROR: board-specific fdt fixup failed: %s\n",
+				       fdt_strerror(fdt_ret));
+				goto err;
+			}
 		}
 	}
-	if (IMAGE_OF_SYSTEM_SETUP) {
+	if (IS_ENABLED(CONFIG_OF_SYSTEM_SETUP)) {
 		fdt_ret = ft_system_setup(blob, gd->bd);
 		if (fdt_ret) {
 			printf("ERROR: system-specific fdt fixup failed: %s\n",
@@ -542,8 +653,8 @@ int image_setup_libfdt(bootm_headers_t *images, void *blob,
 	if (!ft_verify_fdt(blob))
 		goto err;
 
-#if defined(CONFIG_SOC_KEYSTONE)
-	if (IMAGE_OF_BOARD_SETUP)
+#if defined(CONFIG_ARCH_KEYSTONE)
+	if (IS_ENABLED(CONFIG_OF_BOARD_SETUP))
 		ft_board_setup_ex(blob, gd->bd);
 #endif
 

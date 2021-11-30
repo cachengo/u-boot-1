@@ -1,11 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright 2017 Google, Inc
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _WDT_H_
 #define _WDT_H_
+
+struct udevice;
 
 /*
  * Implement a simple watchdog uclass. Watchdog is basically a timer that
@@ -35,6 +36,14 @@ int wdt_start(struct udevice *dev, u64 timeout_ms, ulong flags);
  * @return: 0 if OK, -ve on error
  */
 int wdt_stop(struct udevice *dev);
+
+/*
+ * Stop all registered watchdog devices.
+ *
+ * @return: 0 if ok, first error encountered otherwise (but wdt_stop()
+ * is still called on following devices)
+ */
+int wdt_stop_all(void);
 
 /*
  * Reset the timer, typically restoring the counter to
@@ -103,5 +112,7 @@ struct wdt_ops {
 	 */
 	int (*expire_now)(struct udevice *dev, ulong flags);
 };
+
+int initr_watchdog(void);
 
 #endif  /* _WDT_H_ */

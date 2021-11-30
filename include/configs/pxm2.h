@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * siemens pxm2
  * (C) Copyright 2013 Siemens Schweiz AG
@@ -7,15 +8,10 @@
  * U-Boot file:/include/configs/am335x_evm.h
  *
  * Copyright (C) 2011 Texas Instruments Incorporated - http://www.ti.com/
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __CONFIG_PXM2_H
 #define __CONFIG_PXM2_H
-
-#define CONFIG_SIEMENS_PXM2
-#define CONFIG_SIEMENS_MACH_TYPE	MACH_TYPE_PXM2
 
 #include "siemens-am33x-common.h"
 
@@ -34,18 +30,11 @@
  /* Physical Memory Map */
 #define CONFIG_MAX_RAM_BANK_SIZE	(512 << 20)	/* 1GB */
 
-/* I2C Configuration */
-#define CONFIG_SYS_I2C_SPEED		400000
-#define CONFIG_SYS_I2C_EEPROM_ADDR	0x50
-
-#define CONFIG_PHY_ATHEROS
-
 #define CONFIG_FACTORYSET
 
 #ifndef CONFIG_SPL_BUILD
 
 /* Use common default */
-#define MTDPARTS_DEFAULT	MTDPARTS_DEFAULT_V1
 
 /* Default env settings */
 #define CONFIG_EXTRA_ENV_SETTINGS \
@@ -119,10 +108,7 @@
 
 #if defined(CONFIG_VIDEO)
 #define CONFIG_VIDEO_DA8XX
-#define CONFIG_SPLASH_SCREEN
-#define CONFIG_SPLASH_SCREEN_ALIGN
 #define CONFIG_VIDEO_LOGO
-#define CONFIG_VIDEO_BMP_RLE8
 #define CONFIG_VIDEO_BMP_LOGO
 #define DA8XX_LCD_CNTL_BASE	LCD_CNTL_BASE
 #define PWM_TICKS	0x1388

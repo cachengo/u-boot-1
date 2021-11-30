@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2015 Google, Inc
  * Written by Simon Glass <sjg@chromium.org>
@@ -5,13 +6,12 @@
  * Based on Rockchip's drivers/power/pmic/pmic_rk808.c:
  * Copyright (C) 2012 rockchips
  * zyw <zyw@rock-chips.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
 #include <dm.h>
 #include <errno.h>
+#include <log.h>
 #include <power/rk8xx_pmic.h>
 #include <power/pmic.h>
 #include <power/regulator.h>
@@ -21,12 +21,31 @@
 #endif
 
 /* Not used or exisit register and configure */
-#define NA			-1
+#define NA			0xff
 
 /* Field Definitions */
 #define RK808_BUCK_VSEL_MASK	0x3f
 #define RK808_BUCK4_VSEL_MASK	0xf
 #define RK808_LDO_VSEL_MASK	0x1f
+
+/* RK809 BUCK5 */
+#define RK809_BUCK5_CONFIG(n)		(0xde + (n) * 1)
+#define RK809_BUCK5_VSEL_MASK		0x07
+
+/* RK817 BUCK */
+#define RK817_BUCK_ON_VSEL(n)		(0xbb + 3 * ((n) - 1))
+#define RK817_BUCK_SLP_VSEL(n)		(0xbc + 3 * ((n) - 1))
+#define RK817_BUCK_VSEL_MASK		0x7f
+#define RK817_BUCK_CONFIG(i)		(0xba + (i) * 3)
+
+/* RK817 LDO */
+#define RK817_LDO_ON_VSEL(n)		(0xcc + 2 * ((n) - 1))
+#define RK817_LDO_SLP_VSEL(n)		(0xcd + 2 * ((n) - 1))
+#define RK817_LDO_VSEL_MASK		0x7f
+
+/* RK817 ENABLE */
+#define RK817_POWER_EN(n)		(0xb1 + (n))
+#define RK817_POWER_SLP_EN(n)		(0xb5 + (n))
 
 #define RK818_BUCK_VSEL_MASK		0x3f
 #define RK818_BUCK4_VSEL_MASK		0x1f
@@ -35,25 +54,6 @@
 #define RK818_BOOST_ON_VSEL_MASK	0xe0
 #define RK818_USB_ILIM_SEL_MASK		0x0f
 #define RK818_USB_CHG_SD_VSEL_MASK	0x70
-
-/* RK809 BUCK5 */
-#define RK809_BUCK5_CONFIG(n)		(0xde + (n) * 1)
-#define RK809_BUCK5_VSEL_MASK		0x07
-
-/* RK817 BUCK */
-#define RK817_BUCK_ON_VSEL(n)		(0xbb + 3 * (n - 1))
-#define RK817_BUCK_SLP_VSEL(n)		(0xbc + 3 * (n - 1))
-#define RK817_BUCK_VSEL_MASK		0x7f
-#define RK817_BUCK_CONFIG(i)		(0xba + (i) * 3)
-
-/* RK817 LDO */
-#define RK817_LDO_ON_VSEL(n)		(0xcc + 2 * (n - 1))
-#define RK817_LDO_SLP_VSEL(n)		(0xcd + 2 * (n - 1))
-#define RK817_LDO_VSEL_MASK		0x7f
-
-/* RK817 ENABLE */
-#define RK817_POWER_EN(n)		(0xb1 + (n))
-#define RK817_POWER_SLP_EN(n)		(0xb5 + (n))
 
 /*
  * Ramp delay
@@ -288,11 +288,12 @@ static int _buck_set_value(struct udevice *pmic, int buck, int uvolt)
 		val = ((uvolt - info->min_uv) / info->step_uv) + info->min_sel;
 
 	debug("%s: volt=%d, buck=%d, reg=0x%x, mask=0x%x, val=0x%x\n",
-	      __func__, uvolt, buck+1, info->vsel_reg, mask, val);
+	      __func__, uvolt, buck + 1, info->vsel_reg, mask, val);
 
 	if (priv->variant == RK816_ID) {
 		pmic_clrsetbits(pmic, info->vsel_reg, mask, val);
-		return pmic_clrsetbits(pmic, RK816_REG_DCDC_EN2, 1 << 7, 1 << 7);
+		return pmic_clrsetbits(pmic, RK816_REG_DCDC_EN2,
+				       1 << 7, 1 << 7);
 	} else {
 		return pmic_clrsetbits(pmic, info->vsel_reg, mask, val);
 	}
@@ -301,7 +302,7 @@ static int _buck_set_value(struct udevice *pmic, int buck, int uvolt)
 static int _buck_set_enable(struct udevice *pmic, int buck, bool enable)
 {
 	uint mask, value, en_reg;
-	int ret;
+	int ret = 0;
 	struct rk8xx_priv *priv = dev_get_priv(pmic);
 
 	switch (priv->variant) {
@@ -372,7 +373,7 @@ static int _buck_set_suspend_value(struct udevice *pmic, int buck, int uvolt)
 		val = ((uvolt - info->min_uv) / info->step_uv) + info->min_sel;
 
 	debug("%s: volt=%d, buck=%d, reg=0x%x, mask=0x%x, val=0x%x\n",
-	      __func__, uvolt, buck+1, info->vsel_sleep_reg, mask, val);
+	      __func__, uvolt, buck + 1, info->vsel_sleep_reg, mask, val);
 
 	return pmic_clrsetbits(pmic, info->vsel_sleep_reg, mask, val);
 }
@@ -420,92 +421,9 @@ static int _buck_get_enable(struct udevice *pmic, int buck)
 	return ret & mask ? true : false;
 }
 
-static int _buck_set_ramp_delay(struct udevice *pmic, int buck, u32 ramp_delay)
-{
-	const struct rk8xx_reg_info *info = get_buck_reg(pmic, buck, 0);
-	struct rk8xx_priv *priv = dev_get_priv(pmic);
-	u32 ramp_value, ramp_mask;
-
-	if (info->config_reg == NA)
-		return -ENOSYS;
-
-	switch (priv->variant) {
-	case RK805_ID:
-		ramp_mask = RK805_RAMP_RATE_MASK;
-		ramp_value = RK805_RAMP_RATE_12_5MV_PER_US;
-		switch (ramp_delay) {
-		case 0 ... 3000:
-			ramp_value = RK805_RAMP_RATE_3MV_PER_US;
-			break;
-		case 3001 ... 6000:
-			ramp_value = RK805_RAMP_RATE_6MV_PER_US;
-			break;
-		case 6001 ... 12500:
-			ramp_value = RK805_RAMP_RATE_12_5MV_PER_US;
-			break;
-		case 12501 ... 25000:
-			ramp_value = RK805_RAMP_RATE_25MV_PER_US;
-			break;
-		default:
-			printf("buck%d ramp_delay: %d not supported\n",
-			       buck, ramp_delay);
-		}
-		break;
-	case RK808_ID:
-	case RK816_ID:
-	case RK818_ID:
-		ramp_value = RK808_RAMP_RATE_6MV_PER_US;
-		ramp_mask = RK808_RAMP_RATE_MASK;
-		switch (ramp_delay) {
-		case 1 ... 2000:
-			ramp_value = RK808_RAMP_RATE_2MV_PER_US;
-			break;
-		case 2001 ... 4000:
-			ramp_value = RK808_RAMP_RATE_4MV_PER_US;
-			break;
-		case 4001 ... 6000:
-			ramp_value = RK808_RAMP_RATE_6MV_PER_US;
-			break;
-		case 6001 ... 10000:
-			ramp_value = RK808_RAMP_RATE_6MV_PER_US;
-			break;
-		default:
-			printf("buck%d ramp_delay: %d not supported\n",
-			       buck, ramp_delay);
-		}
-		break;
-	case RK809_ID:
-	case RK817_ID:
-		ramp_mask = RK817_RAMP_RATE_MASK;
-		ramp_value = RK817_RAMP_RATE_12_5MV_PER_US;
-		switch (ramp_delay) {
-		case 0 ... 3000:
-			ramp_value = RK817_RAMP_RATE_3MV_PER_US;
-			break;
-		case 3001 ... 6300:
-			ramp_value = RK817_RAMP_RATE_6_3MV_PER_US;
-			break;
-		case 6301 ... 12500:
-			ramp_value = RK817_RAMP_RATE_12_5MV_PER_US;
-			break;
-		case 12501 ... 25000:
-			ramp_value = RK817_RAMP_RATE_12_5MV_PER_US;
-			break;
-		default:
-			printf("buck%d ramp_delay: %d not supported\n",
-			       buck, ramp_delay);
-		}
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	return pmic_clrsetbits(pmic, info->config_reg, ramp_mask, ramp_value);
-}
-
 static int _buck_set_suspend_enable(struct udevice *pmic, int buck, bool enable)
 {
-	uint mask;
+	uint mask = 0;
 	int ret;
 	struct rk8xx_priv *priv = dev_get_priv(pmic);
 
@@ -542,7 +460,7 @@ static int _buck_get_suspend_enable(struct udevice *pmic, int buck)
 {
 	struct rk8xx_priv *priv = dev_get_priv(pmic);
 	int ret, val;
-	uint mask;
+	uint mask = 0;
 
 	switch (priv->variant) {
 	case RK805_ID:
@@ -855,13 +773,6 @@ static int buck_get_suspend_enable(struct udevice *dev)
 	return _buck_get_suspend_enable(dev->parent, buck);
 }
 
-static int buck_set_ramp_delay(struct udevice *dev, u32 ramp_delay)
-{
-	int buck = dev->driver_data - 1;
-
-	return _buck_set_ramp_delay(dev->parent, buck, ramp_delay);
-}
-
 static int buck_get_enable(struct udevice *dev)
 {
 	int buck = dev->driver_data - 1;
@@ -902,7 +813,7 @@ static int ldo_set_value(struct udevice *dev, int uvolt)
 		val = ((uvolt - info->min_uv) / info->step_uv) + info->min_sel;
 
 	debug("%s: volt=%d, ldo=%d, reg=0x%x, mask=0x%x, val=0x%x\n",
-	      __func__, uvolt, ldo+1, info->vsel_reg, mask, val);
+	      __func__, uvolt, ldo + 1, info->vsel_reg, mask, val);
 
 	return pmic_clrsetbits(dev->parent, info->vsel_reg, mask, val);
 }
@@ -923,7 +834,7 @@ static int ldo_set_suspend_value(struct udevice *dev, int uvolt)
 		val = ((uvolt - info->min_uv) / info->step_uv) + info->min_sel;
 
 	debug("%s: volt=%d, ldo=%d, reg=0x%x, mask=0x%x, val=0x%x\n",
-	      __func__, uvolt, ldo+1, info->vsel_sleep_reg, mask, val);
+	      __func__, uvolt, ldo + 1, info->vsel_sleep_reg, mask, val);
 
 	return pmic_clrsetbits(dev->parent, info->vsel_sleep_reg, mask, val);
 }
@@ -1105,11 +1016,27 @@ static int switch_get_suspend_enable(struct udevice *dev)
 	return ret;
 }
 
+/*
+ * RK8xx switch does not need to set the voltage,
+ * but if dts set regulator-min-microvolt/regulator-max-microvolt,
+ * will cause regulator set value fail and not to enable this switch.
+ * So add an empty function to return success.
+ */
+static int switch_get_value(struct udevice *dev)
+{
+	return 0;
+}
+
+static int switch_set_value(struct udevice *dev, int uvolt)
+{
+	return 0;
+}
+
 static int rk8xx_buck_probe(struct udevice *dev)
 {
-	struct dm_regulator_uclass_platdata *uc_pdata;
+	struct dm_regulator_uclass_plat *uc_pdata;
 
-	uc_pdata = dev_get_uclass_platdata(dev);
+	uc_pdata = dev_get_uclass_plat(dev);
 
 	uc_pdata->type = REGULATOR_TYPE_BUCK;
 	uc_pdata->mode_count = 0;
@@ -1119,9 +1046,9 @@ static int rk8xx_buck_probe(struct udevice *dev)
 
 static int rk8xx_ldo_probe(struct udevice *dev)
 {
-	struct dm_regulator_uclass_platdata *uc_pdata;
+	struct dm_regulator_uclass_plat *uc_pdata;
 
-	uc_pdata = dev_get_uclass_platdata(dev);
+	uc_pdata = dev_get_uclass_plat(dev);
 
 	uc_pdata->type = REGULATOR_TYPE_LDO;
 	uc_pdata->mode_count = 0;
@@ -1131,9 +1058,9 @@ static int rk8xx_ldo_probe(struct udevice *dev)
 
 static int rk8xx_switch_probe(struct udevice *dev)
 {
-	struct dm_regulator_uclass_platdata *uc_pdata;
+	struct dm_regulator_uclass_plat *uc_pdata;
 
-	uc_pdata = dev_get_uclass_platdata(dev);
+	uc_pdata = dev_get_uclass_plat(dev);
 
 	uc_pdata->type = REGULATOR_TYPE_FIXED;
 	uc_pdata->mode_count = 0;
@@ -1150,7 +1077,6 @@ static const struct dm_regulator_ops rk8xx_buck_ops = {
 	.set_enable = buck_set_enable,
 	.set_suspend_enable = buck_set_suspend_enable,
 	.get_suspend_enable = buck_get_suspend_enable,
-	.set_ramp_delay = buck_set_ramp_delay,
 };
 
 static const struct dm_regulator_ops rk8xx_ldo_ops = {
@@ -1165,6 +1091,8 @@ static const struct dm_regulator_ops rk8xx_ldo_ops = {
 };
 
 static const struct dm_regulator_ops rk8xx_switch_ops = {
+	.get_value  = switch_get_value,
+	.set_value  = switch_set_value,
 	.get_enable = switch_get_enable,
 	.set_enable = switch_set_enable,
 	.set_suspend_enable = switch_set_suspend_enable,

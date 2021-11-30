@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  *  vectors - Generic ARM exception table code
  *
@@ -9,8 +10,6 @@
  *  Copyright (c) 2002	Alex Züpke <azu@sysgo.de>
  *  Copyright (c) 2002	Gary Jennejohn <garyj@denx.de>
  *  Copyright (c) 2002	Kyle Harris <kharris@nexus-tech.net>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <config.h>
@@ -20,7 +19,11 @@
  * for the non-boot0 case or by a boot0-header.
  */
         .macro ARM_VECTORS
+#ifdef CONFIG_ARCH_K3
+	ldr     pc, _reset
+#else
 	b	reset
+#endif
 	ldr	pc, _undefined_instruction
 	ldr	pc, _software_interrupt
 	ldr	pc, _prefetch_abort
@@ -65,7 +68,6 @@
  *   (2) inserts the vector table using ARM_VECTORS as appropriate
  */
 #include <asm/arch/boot0.h>
-
 #else
 
 /*
@@ -95,6 +97,7 @@ _start:
  *************************************************************************
  */
 
+	.globl  _reset
 	.globl	_undefined_instruction
 	.globl	_software_interrupt
 	.globl	_prefetch_abort
@@ -103,6 +106,9 @@ _start:
 	.globl	_irq
 	.globl	_fiq
 
+#ifdef CONFIG_ARCH_K3
+_reset:			.word reset
+#endif
 _undefined_instruction:	.word undefined_instruction
 _software_interrupt:	.word software_interrupt
 _prefetch_abort:	.word prefetch_abort
@@ -134,7 +140,7 @@ not_used:
 irq:
 fiq:
 1:
-	bl	1b			/* hang and never return */
+	b	1b			/* hang and never return */
 
 #else	/* !CONFIG_SPL_BUILD */
 
@@ -144,13 +150,6 @@ IRQ_STACK_START_IN:
 #ifdef IRAM_BASE_ADDR
 	.word   IRAM_BASE_ADDR + 0x20
 #else
-	.word	0x0badc0de
-#endif
-
-#if !defined(CONFIG_SPL_BUILD) && defined(CONFIG_IRQ)
-/* IRQ stack memory (calculated at run-time) */
-.globl IRQ_STACK_START
-IRQ_STACK_START:
 	.word	0x0badc0de
 #endif
 
@@ -280,16 +279,9 @@ not_used:
 
 	.align	5
 irq:
-#if !defined(CONFIG_SPL_BUILD) && defined(CONFIG_IRQ)
-	get_irq_stack
-	irq_save_user_regs
-	bl	do_irq
-	irq_restore_user_regs
-#else
 	get_bad_stack
 	bad_save_user_regs
 	bl	do_irq
-#endif
 
 	.align	5
 fiq:

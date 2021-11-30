@@ -1,13 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (c) 2011 The Chromium OS Authors.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /* Tegra clock control functions */
 
 #ifndef _TEGRA_CLOCK_H_
 #define _TEGRA_CLOCK_H_
+
+struct udevice;
 
 /* Set of oscillator frequencies supported in the internal API. */
 enum clock_osc_freq {

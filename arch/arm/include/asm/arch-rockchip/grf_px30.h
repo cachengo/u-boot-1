@@ -1,12 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2017 Rockchip Electronics Co., Ltd.
- *
- * SPDX-License-Identifier:     GPL-2.0+
  */
 #ifndef _ASM_ARCH_GRF_px30_H
 #define _ASM_ARCH_GRF_px30_H
-
-#include <common.h>
 
 struct px30_grf {
 	unsigned int gpio1al_iomux;
@@ -113,18 +110,18 @@ struct px30_grf {
 check_member(px30_grf, mac_con1, 0x904);
 
 struct px30_pmugrf {
-	unsigned int gpio0a_e;
-	unsigned int gpio0b_e;
-	unsigned int gpio0c_e;
-	unsigned int gpio0d_e;
-	unsigned int gpio0a_p;
-	unsigned int gpio0b_p;
-	unsigned int gpio0c_p;
-	unsigned int gpio0d_p;
 	unsigned int gpio0al_iomux;
 	unsigned int gpio0bl_iomux;
 	unsigned int gpio0cl_iomux;
 	unsigned int gpio0dl_iomux;
+	unsigned int gpio0a_p;
+	unsigned int gpio0b_p;
+	unsigned int gpio0c_p;
+	unsigned int gpio0d_p;
+	unsigned int gpio0a_e;
+	unsigned int gpio0b_e;
+	unsigned int gpio0c_e;
+	unsigned int gpio0d_e;
 	unsigned int gpio0l_sr;
 	unsigned int gpio0h_sr;
 	unsigned int gpio0l_smt;

@@ -1,12 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2008 Semihalf
  *
  * Written by: Piotr Ziecik <kosmo@semihalf.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
+#include <dma.h>
 #include <flash.h>
 #include <malloc.h>
 
@@ -71,7 +71,8 @@ static int cfi_mtd_read(struct mtd_info *mtd, loff_t from, size_t len,
 	flash_info_t *fi = mtd->priv;
 	u_char *f = (u_char*)(fi->start[0]) + from;
 
-	memcpy(buf, f, len);
+	if (dma_memcpy(buf, f, len) < 0)
+		memcpy(buf, f, len);
 	*retlen = len;
 
 	return 0;

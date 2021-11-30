@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
 /*
  * f_mass_storage.c -- Mass Storage USB Composite Function
  *
@@ -5,8 +6,6 @@
  * Copyright (C) 2009 Samsung Electronics
  *                    Author: Michal Nazarewicz <m.nazarewicz@samsung.com>
  * All rights reserved.
- *
- * SPDX-License-Identifier: GPL-2.0+	BSD-3-Clause
  */
 
 /*
@@ -241,22 +240,26 @@
 /* #define DUMP_MSGS */
 
 #include <config.h>
+#include <hexdump.h>
+#include <log.h>
 #include <malloc.h>
 #include <common.h>
 #include <console.h>
 #include <g_dnl.h>
+#include <dm/devres.h>
+#include <linux/bug.h>
 
 #include <linux/err.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 #include <usb_mass_storage.h>
-#include <rockusb.h>
 
 #include <asm/unaligned.h>
+#include <linux/bitops.h>
 #include <linux/usb/gadget.h>
 #include <linux/usb/gadget.h>
 #include <linux/usb/composite.h>
-#include <usb/lin_gadget_compat.h>
+#include <linux/bitmap.h>
 #include <g_dnl.h>
 
 /*------------------------------------------------------------------------*/
@@ -283,26 +286,6 @@ static const char fsg_string_interface[] = "Mass Storage";
 
 struct kref {int x; };
 struct completion {int x; };
-
-inline void set_bit(int nr, volatile void *addr)
-{
-	int	mask;
-	unsigned int *a = (unsigned int *) addr;
-
-	a += nr >> 5;
-	mask = 1 << (nr & 0x1f);
-	*a |= mask;
-}
-
-inline void clear_bit(int nr, volatile void *addr)
-{
-	int	mask;
-	unsigned int *a = (unsigned int *) addr;
-
-	a += nr >> 5;
-	mask = 1 << (nr & 0x1f);
-	*a &= ~mask;
-}
 
 struct fsg_dev;
 struct fsg_common;
@@ -410,7 +393,11 @@ static inline int __fsg_is_set(struct fsg_common *common,
 	if (common->fsg)
 		return 1;
 	ERROR(common, "common->fsg is NULL in %s at %u\n", func, line);
+#ifdef __UBOOT__
+	assert_noisy(false);
+#else
 	WARN_ON(1);
+#endif
 	return 0;
 }
 
@@ -448,6 +435,7 @@ static void set_bulk_out_req_length(struct fsg_common *common,
 static struct ums *ums;
 static int ums_count;
 static struct fsg_common *the_fsg_common;
+static unsigned int controller_index;
 
 static int fsg_set_halt(struct fsg_dev *fsg, struct usb_ep *ep)
 {
@@ -692,7 +680,7 @@ static int sleep_thread(struct fsg_common *common)
 			k = 0;
 		}
 
-		usb_gadget_handle_interrupts(0);
+		usb_gadget_handle_interrupts(controller_index);
 	}
 	common->thread_wakeup_needed = 0;
 	return rc;
@@ -1671,9 +1659,6 @@ static int send_status(struct fsg_common *common)
 
 
 /*-------------------------------------------------------------------------*/
-#ifdef CONFIG_CMD_ROCKUSB
-#include "f_rockusb.c"
-#endif
 
 /* Check whether the command is properly formed and whether its data size
  * and direction agree with the values we already have. */
@@ -1748,7 +1733,7 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 		    common->lun, lun);
 
 	/* Check the LUN */
-	if (common->lun >= 0 && common->lun < common->nluns) {
+	if (common->lun < common->nluns) {
 		curlun = &common->luns[common->lun];
 		if (common->cmnd[0] != SC_REQUEST_SENSE) {
 			curlun->sense_data = SS_NO_SENSE;
@@ -1799,7 +1784,6 @@ static int do_scsi_command(struct fsg_common *common)
 	int			i;
 	static char		unknown[16];
 	struct fsg_lun		*curlun = &common->luns[common->lun];
-	const char		*cdev_name __maybe_unused;
 
 	dump_cdb(common);
 
@@ -1815,16 +1799,6 @@ static int do_scsi_command(struct fsg_common *common)
 	common->short_packet_received = 0;
 
 	down_read(&common->filesem);	/* We're using the backing file */
-
-	cdev_name = common->fsg->function.config->cdev->driver->name;
-	if (IS_RKUSB_UMS_DNL(cdev_name)) {
-		rc = rkusb_cmd_process(common, bh, &reply);
-		if (rc == RKUSB_RC_FINISHED || rc == RKUSB_RC_ERROR)
-			goto finish;
-		else if (rc == RKUSB_RC_UNKNOWN_CMND)
-			goto unknown_cmnd;
-	}
-
 	switch (common->cmnd[0]) {
 
 	case SC_INQUIRY:
@@ -2053,8 +2027,6 @@ unknown_cmnd:
 		}
 		break;
 	}
-
-finish:
 	up_read(&common->filesem);
 
 	if (reply == -EINTR)
@@ -2103,7 +2075,7 @@ static int received_cbw(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 		 * we can simply accept and discard any data received
 		 * until the next reset. */
 		wedge_bulk_in_endpoint(fsg);
-		set_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
+		generic_set_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
 		return -EINVAL;
 	}
 
@@ -2267,7 +2239,7 @@ reset:
 	fsg->bulk_out_enabled = 1;
 	common->bulk_out_maxpacket =
 				le16_to_cpu(get_unaligned(&d->wMaxPacketSize));
-	clear_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
+	generic_clear_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
 
 	/* Allocate the requests */
 	for (i = 0; i < FSG_NUM_BUFFERS; ++i) {
@@ -2710,10 +2682,7 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 	fsg->bulk_out = ep;
 
 	/* Copy descriptors */
-	if (IS_RKUSB_UMS_DNL(c->cdev->driver->name))
-		f->descriptors = usb_copy_descriptors(rkusb_fs_function);
-	else
-		f->descriptors = usb_copy_descriptors(fsg_fs_function);
+	f->descriptors = usb_copy_descriptors(fsg_fs_function);
 	if (unlikely(!f->descriptors))
 		return -ENOMEM;
 
@@ -2723,13 +2692,7 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 			fsg_fs_bulk_in_desc.bEndpointAddress;
 		fsg_hs_bulk_out_desc.bEndpointAddress =
 			fsg_fs_bulk_out_desc.bEndpointAddress;
-
-		if (IS_RKUSB_UMS_DNL(c->cdev->driver->name))
-			f->hs_descriptors =
-				usb_copy_descriptors(rkusb_hs_function);
-		else
-			f->hs_descriptors =
-				usb_copy_descriptors(fsg_hs_function);
+		f->hs_descriptors = usb_copy_descriptors(fsg_hs_function);
 		if (unlikely(!f->hs_descriptors)) {
 			free(f->descriptors);
 			return -ENOMEM;
@@ -2802,10 +2765,11 @@ int fsg_add(struct usb_configuration *c)
 	return fsg_bind_config(c->cdev, c, fsg_common);
 }
 
-int fsg_init(struct ums *ums_devs, int count)
+int fsg_init(struct ums *ums_devs, int count, unsigned int controller_idx)
 {
 	ums = ums_devs;
 	ums_count = count;
+	controller_index = controller_idx;
 
 	return 0;
 }

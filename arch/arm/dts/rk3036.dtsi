@@ -1,6 +1,4 @@
-/*
- * SPDX-License-Identifier:	GPL-2.0+
- */
+// SPDX-License-Identifier: GPL-2.0+
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/interrupt-controller/irq.h>
@@ -109,11 +107,6 @@
 		assigned-clock-rates = <594000000>;
 	};
 
-	dmc: dmc@20004000 {
-		compatible = "rockchip,rk3036-dmc", "syscon";
-		reg = <0x0 0x20004000 0x0 0x1000>;
-	};
-
 	uart0: serial@20060000 {
 		compatible = "rockchip,rk3036-uart", "snps,dw-apb-uart";
 		reg = <0x20060000 0x100>;
@@ -157,7 +150,7 @@
 		compatible = "rockchip,rk2928-pwm";
 		reg = <0x20050000 0x10>;
 		#pwm-cells = <3>;
-		pinctrl-names = "active";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pwm0_pin>;
 		clocks = <&cru PCLK_PWM>;
 		clock-names = "pwm";
@@ -168,7 +161,7 @@
 		compatible = "rockchip,rk2928-pwm";
 		reg = <0x20050010 0x10>;
 		#pwm-cells = <3>;
-		pinctrl-names = "active";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pwm1_pin>;
 		clocks = <&cru PCLK_PWM>;
 		clock-names = "pwm";
@@ -179,7 +172,7 @@
 		compatible = "rockchip,rk2928-pwm";
 		reg = <0x20050020 0x10>;
 		#pwm-cells = <3>;
-		pinctrl-names = "active";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pwm2_pin>;
 		clocks = <&cru PCLK_PWM>;
 		clock-names = "pwm";
@@ -190,7 +183,7 @@
 		compatible = "rockchip,rk2928-pwm";
 		reg = <0x20050030 0x10>;
 		#pwm-cells = <2>;
-		pinctrl-names = "active";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pwm3_pin>;
 		clocks = <&cru PCLK_PWM>;
 		clock-names = "pwm";
@@ -252,7 +245,7 @@
 		max-frequency = <37500000>;
 		clocks = <&cru HCLK_EMMC>, <&cru SCLK_EMMC>,
 		<&cru SCLK_EMMC_DRV>, <&cru SCLK_EMMC_SAMPLE>;
-		clock-names = "biu", "ciu", "ciu-drv", "ciu-sample";
+		clock-names = "biu", "ciu", "ciu_drv", "ciu_sample";
 		dmas = <&pdma 12>;
 		dma-names = "rx-tx";
 		fifo-depth = <0x100>;

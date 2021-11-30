@@ -1,24 +1,30 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * (C) Copyright 2018 Rockchip Electronics Co., Ltd
- *
- * SPDX-License-Identifier:     GPL-2.0+
+ * (C) Copyright 2019 Rockchip Electronics Co., Ltd
  */
 
 #include <common.h>
 #include <debug_uart.h>
 #include <dm.h>
+#include <hang.h>
+#include <image.h>
+#include <init.h>
+#include <log.h>
 #include <ram.h>
 #include <spl.h>
-#include <asm/arch/bootrom.h>
-#include <asm/arch/sdram_common.h>
-#include <asm/arch-rockchip/sys_proto.h>
+#include <asm/arch-rockchip/bootrom.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
+#include <linux/bitops.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
-void board_return_to_bootrom(void)
+int board_return_to_bootrom(struct spl_image_info *spl_image,
+			    struct spl_boot_device *bootdev)
 {
 	back_to_bootrom(BROM_BOOT_NEXTSTAGE);
+
+	return 0;
 }
 
 __weak const char * const boot_devices[BROM_LAST_BOOTSOURCE + 1] = {
@@ -48,7 +54,9 @@ u32 spl_boot_device(void)
 
 #if defined(CONFIG_TARGET_CHROMEBOOK_JERRY) || \
 		defined(CONFIG_TARGET_CHROMEBIT_MICKEY) || \
-		defined(CONFIG_TARGET_CHROMEBOOK_MINNIE)
+		defined(CONFIG_TARGET_CHROMEBOOK_MINNIE) || \
+		defined(CONFIG_TARGET_CHROMEBOOK_SPEEDY) || \
+		defined(CONFIG_TARGET_CHROMEBOOK_BOB)
 	return BOOT_DEVICE_SPI;
 #endif
 	if (CONFIG_IS_ENABLED(ROCKCHIP_BACK_TO_BROM))
@@ -57,23 +65,41 @@ u32 spl_boot_device(void)
 	return boot_device;
 }
 
-u32 spl_boot_mode(const u32 boot_device)
+u32 spl_mmc_boot_mode(const u32 boot_device)
 {
 	return MMCSD_MODE_RAW;
 }
 
+#if !defined(CONFIG_ROCKCHIP_RK3188)
+#define TIMER_LOAD_COUNT_L	0x00
+#define TIMER_LOAD_COUNT_H	0x04
+#define TIMER_CONTROL_REG	0x10
+#define TIMER_EN	0x1
+#define	TIMER_FMODE	BIT(0)
+#define	TIMER_RMODE	BIT(1)
+
 __weak void rockchip_stimer_init(void)
 {
-#ifdef CONFIG_SYS_ARCH_TIMER
+	/* If Timer already enabled, don't re-init it */
+	u32 reg = readl(CONFIG_ROCKCHIP_STIMER_BASE + TIMER_CONTROL_REG);
+
+	if (reg & TIMER_EN)
+		return;
 #ifndef CONFIG_ARM64
 	asm volatile("mcr p15, 0, %0, c14, c0, 0"
 		     : : "r"(COUNTER_FREQUENCY));
 #endif
-	writel(0, CONFIG_ROCKCHIP_STIMER_BASE + 0x10);
+	writel(0, CONFIG_ROCKCHIP_STIMER_BASE + TIMER_CONTROL_REG);
 	writel(0xffffffff, CONFIG_ROCKCHIP_STIMER_BASE);
 	writel(0xffffffff, CONFIG_ROCKCHIP_STIMER_BASE + 4);
-	writel(1, CONFIG_ROCKCHIP_STIMER_BASE + 0x10);
+	writel(TIMER_EN | TIMER_FMODE, CONFIG_ROCKCHIP_STIMER_BASE +
+	       TIMER_CONTROL_REG);
+}
 #endif
+
+__weak int board_early_init_f(void)
+{
+	return 0;
 }
 
 __weak int arch_cpu_init(void)
@@ -81,76 +107,11 @@ __weak int arch_cpu_init(void)
 	return 0;
 }
 
-__weak int rk_board_init_f(void)
-{
-	return 0;
-}
-
-#ifndef CONFIG_SPL_LIBGENERIC_SUPPORT
-void udelay(unsigned long usec)
-{
-	__udelay(usec);
-}
-
-void hang(void)
-{
-	bootstage_error(BOOTSTAGE_ID_NEED_RESET);
-	for (;;)
-		;
-}
-
-/**
- * memset - Fill a region of memory with the given value
- * @s: Pointer to the start of the area.
- * @c: The byte to fill the area with
- * @count: The size of the area.
- *
- * Do not use memset() to access IO space, use memset_io() instead.
- */
-void *memset(void *s, int c, size_t count)
-{
-	unsigned long *sl = (unsigned long *)s;
-	char *s8;
-
-#if !CONFIG_IS_ENABLED(TINY_MEMSET)
-	unsigned long cl = 0;
-	int i;
-
-	/* do it one word at a time (32 bits or 64 bits) while possible */
-	if (((ulong)s & (sizeof(*sl) - 1)) == 0) {
-		for (i = 0; i < sizeof(*sl); i++) {
-			cl <<= 8;
-			cl |= c & 0xff;
-		}
-		while (count >= sizeof(*sl)) {
-			*sl++ = cl;
-			count -= sizeof(*sl);
-		}
-	}
-#endif /* fill 8 bits at a time */
-	s8 = (char *)sl;
-	while (count--)
-		*s8++ = c;
-
-	return s;
-}
-#endif
-
 void board_init_f(ulong dummy)
 {
-#ifdef CONFIG_SPL_FRAMEWORK
 	int ret;
-#if !defined(CONFIG_SUPPORT_TPL)
-	struct udevice *dev;
-#endif
-#endif
 
-#if !defined(CONFIG_SUPPORT_TPL)
-	rockchip_stimer_init();
-	arch_cpu_init();
-#endif
-#define EARLY_UART
-#if defined(EARLY_UART) && defined(CONFIG_DEBUG_UART)
+#ifdef CONFIG_DEBUG_UART
 	/*
 	 * Debug UART can be used from here if required:
 	 *
@@ -160,90 +121,33 @@ void board_init_f(ulong dummy)
 	 * printascii("string");
 	 */
 	debug_uart_init();
-	printascii("U-Boot SPL board init");
+	debug("\nspl:debug uart enabled in %s\n", __func__);
 #endif
 
-#ifdef CONFIG_SPL_FRAMEWORK
+	board_early_init_f();
+
 	ret = spl_early_init();
 	if (ret) {
 		printf("spl_early_init() failed: %d\n", ret);
 		hang();
 	}
-#if !defined(CONFIG_SUPPORT_TPL)
+	arch_cpu_init();
+#if !defined(CONFIG_ROCKCHIP_RK3188)
+	rockchip_stimer_init();
+#endif
+#ifdef CONFIG_SYS_ARCH_TIMER
+	/* Init ARM arch timer in arch/arm/cpu/armv7/arch_timer.c */
+	timer_init();
+#endif
+#if !defined(CONFIG_TPL) || defined(CONFIG_SPL_RAM)
 	debug("\nspl:init dram\n");
-	ret = uclass_get_device(UCLASS_RAM, 0, &dev);
+	ret = dram_init();
 	if (ret) {
 		printf("DRAM init failed: %d\n", ret);
 		return;
 	}
+	gd->ram_top = gd->ram_base + get_effective_memsize();
+	gd->ram_top = board_get_usable_ram_top(gd->ram_size);
 #endif
 	preloader_console_init();
-#else
-	/* Some SoCs like rk3036 does not use any frame work */
-	sdram_init();
-#endif
-
-	rk_board_init_f();
-#if CONFIG_IS_ENABLED(ROCKCHIP_BACK_TO_BROM) && !defined(CONFIG_SPL_BOARD_INIT)
-	back_to_bootrom(BROM_BOOT_NEXTSTAGE);
-#endif
-
 }
-
-#ifdef CONFIG_SPL_LOAD_FIT
-int board_fit_config_name_match(const char *name)
-{
-	/* Just empty function now - can't decide what to choose */
-	debug("%s: %s\n", __func__, name);
-
-	return 0;
-}
-#endif
-
-#ifdef CONFIG_SPL_BOARD_INIT
-__weak int rk_spl_board_init(void)
-{
-	return 0;
-}
-
-static int setup_led(void)
-{
-#ifdef CONFIG_SPL_LED
-	struct udevice *dev;
-	char *led_name;
-	int ret;
-
-	led_name = fdtdec_get_config_string(gd->fdt_blob, "u-boot,boot-led");
-	if (!led_name)
-		return 0;
-	ret = led_get_by_label(led_name, &dev);
-	if (ret) {
-		debug("%s: get=%d\n", __func__, ret);
-		return ret;
-	}
-	ret = led_set_on(dev, 1);
-	if (ret)
-		return ret;
-#endif
-
-	return 0;
-}
-
-void spl_board_init(void)
-{
-	int ret;
-
-	ret = setup_led();
-
-	if (ret) {
-		debug("LED ret=%d\n", ret);
-		hang();
-	}
-
-	rk_spl_board_init();
-#if CONFIG_IS_ENABLED(ROCKCHIP_BACK_TO_BROM)
-	back_to_bootrom(BROM_BOOT_NEXTSTAGE);
-#endif
-	return;
-}
-#endif

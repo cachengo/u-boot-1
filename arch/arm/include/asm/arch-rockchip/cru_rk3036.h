@@ -1,12 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2015 Rockchip Electronics Co., Ltd
- *
- * SPDX-License-Identifier:     GPL-2.0+
  */
 #ifndef _ASM_ARCH_CRU_RK3036_H
 #define _ASM_ARCH_CRU_RK3036_H
-
-#include <common.h>
 
 #define OSC_HZ		(24 * 1000 * 1000)
 
@@ -75,8 +72,6 @@ enum {
 
 	/* PLLCON1 */
 	PLL_RST_SHIFT		= 14,
-	PLL_PD_SHIFT		= 13,
-	PLL_PD_MASK		= 1 << PLL_PD_SHIFT,
 	PLL_DSMPD_SHIFT		= 12,
 	PLL_DSMPD_MASK		= 1 << PLL_DSMPD_SHIFT,
 	PLL_LOCK_STATUS_SHIFT	= 10,

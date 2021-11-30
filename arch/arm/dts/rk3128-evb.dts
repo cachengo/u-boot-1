@@ -1,13 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2017 Rockchip Electronics Co., Ltd
- *
- * SPDX-License-Identifier:     GPL-2.0+
  */
 
 /dts-v1/;
 
 #include "rk3128.dtsi"
-#include "rk3128-u-boot.dtsi"
 
 / {
 	model = "Rockchip RK3128 Evaluation board";
@@ -42,7 +40,7 @@
 &i2c1 {
 	status = "okay";
 
-        hym8563: hym8563@51 {
+	hym8563: hym8563@51 {
 		compatible = "haoyu,hym8563";
 		reg = <0x51>;
 		#clock-cells = <0>;
@@ -60,12 +58,6 @@
 };
 
 &u2phy_host {
-	status = "okay";
-};
-
-&uart2 {
-	clock-frequency = <24000000>;
-	u-boot,dm-pre-reloc;
 	status = "okay";
 };
 
@@ -89,7 +81,7 @@
 
 &pinctrl {
 	usb_otg {
-		otg_vbus_drv: otg-vbus-drv {
+		otg_vbus_drv: host-vbus-drv {
 			rockchip,pins = <0 26 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};

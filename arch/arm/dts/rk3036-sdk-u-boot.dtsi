@@ -1,12 +1,6 @@
-&cru {
-	u-boot,dm-pre-reloc;
-};
+#include "rk3036-u-boot.dtsi"
 
-&dmc {
-	u-boot,dm-pre-reloc;
-};
-
-&emmc {
+&uart2 {
 	u-boot,dm-pre-reloc;
 };
 
@@ -15,9 +9,5 @@
 };
 
 &pinctrl {
-	u-boot,dm-pre-reloc;
-};
-
-&uart2 {
 	u-boot,dm-pre-reloc;
 };

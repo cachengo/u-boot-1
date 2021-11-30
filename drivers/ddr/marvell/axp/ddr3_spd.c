@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) Marvell International Ltd. and its affiliates
- *
- * SPDX-License-Identifier:	GPL-2.0
  */
 
 #include <common.h>
@@ -47,7 +46,7 @@
 #define SPD_COL_NUM_MASK		(7 << SPD_COL_NUM_OFF)
 
 #define SPD_MODULE_ORG_BYTE		7
-#define SPD_MODULE_SDRAM_DEV_WIDTH_OFF 	0
+#define SPD_MODULE_SDRAM_DEV_WIDTH_OFF	0
 #define SPD_MODULE_SDRAM_DEV_WIDTH_MASK	(7 << SPD_MODULE_SDRAM_DEV_WIDTH_OFF)
 #define SPD_MODULE_BANK_NUM_MIN		1
 #define SPD_MODULE_BANK_NUM_OFF		3

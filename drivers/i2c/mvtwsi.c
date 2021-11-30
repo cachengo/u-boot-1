@@ -1,20 +1,25 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Driver for the TWSI (i2c) controller found on the Marvell
  * orion5x and kirkwood SoC families.
  *
  * Author: Albert Aribaud <albert.u.boot@aribaud.net>
  * Copyright (c) 2010 Albert Aribaud.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
 #include <i2c.h>
+#include <log.h>
+#include <asm/global_data.h>
+#include <linux/delay.h>
 #include <linux/errno.h>
 #include <asm/io.h>
+#include <linux/bitops.h>
 #include <linux/compat.h>
-#ifdef CONFIG_DM_I2C
+#if CONFIG_IS_ENABLED(DM_I2C)
+#include <clk.h>
 #include <dm.h>
+#include <reset.h>
 #endif
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -24,10 +29,10 @@ DECLARE_GLOBAL_DATA_PTR;
  * settings
  */
 
-#ifndef CONFIG_DM_I2C
-#if defined(CONFIG_ORION5X)
+#if !CONFIG_IS_ENABLED(DM_I2C)
+#if defined(CONFIG_ARCH_ORION5X)
 #include <asm/arch/orion5x.h>
-#elif (defined(CONFIG_KIRKWOOD) || defined(CONFIG_ARCH_MVEBU))
+#elif (defined(CONFIG_ARCH_KIRKWOOD) || defined(CONFIG_ARCH_MVEBU))
 #include <asm/arch/soc.h>
 #elif defined(CONFIG_ARCH_SUNXI)
 #include <asm/arch/i2c.h>
@@ -40,7 +45,7 @@ DECLARE_GLOBAL_DATA_PTR;
  * On SUNXI, we get CONFIG_SYS_TCLK from this include, so we want to
  * always have it.
  */
-#if defined(CONFIG_DM_I2C) && defined(CONFIG_ARCH_SUNXI)
+#if CONFIG_IS_ENABLED(DM_I2C) && defined(CONFIG_ARCH_SUNXI)
 #include <asm/arch/i2c.h>
 #endif
 
@@ -58,6 +63,7 @@ struct  mvtwsi_registers {
 	u32 status;
 	u32 baudrate;
 	u32 soft_reset;
+	u32 debug; /* Dummy field for build compatibility with mvebu */
 };
 
 #else
@@ -71,13 +77,15 @@ struct  mvtwsi_registers {
 		u32 baudrate;	/* When writing */
 	};
 	u32 xtnd_slave_addr;
-	u32 reserved[2];
+	u32 reserved0[2];
 	u32 soft_reset;
+	u32 reserved1[27];
+	u32 debug;
 };
 
 #endif
 
-#ifdef CONFIG_DM_I2C
+#if CONFIG_IS_ENABLED(DM_I2C)
 struct mvtwsi_i2c_dev {
 	/* TWSI Register base for the device */
 	struct mvtwsi_registers *base;
@@ -116,7 +124,7 @@ enum mvtwsi_ctrl_register_fields {
  * on other platforms, it is a normal r/w bit, which is cleared by writing 0.
  */
 
-#ifdef CONFIG_SUNXI_GEN_SUN6I
+#if defined(CONFIG_SUNXI_GEN_SUN6I) || defined(CONFIG_SUN50I_GEN_H6)
 #define	MVTWSI_CONTROL_CLEAR_IFLG	0x00000008
 #else
 #define	MVTWSI_CONTROL_CLEAR_IFLG	0x00000000
@@ -178,7 +186,7 @@ inline uint calc_tick(uint speed)
 	return (1000000000u / speed) + 100;
 }
 
-#ifndef CONFIG_DM_I2C
+#if !CONFIG_IS_ENABLED(DM_I2C)
 
 /*
  * twsi_get_base() - Get controller register base for specified adapter
@@ -268,6 +276,17 @@ static int twsi_wait(struct mvtwsi_registers *twsi, int expected_status,
 	do {
 		control = readl(&twsi->control);
 		if (control & MVTWSI_CONTROL_IFLG) {
+			/*
+			 * On Armada 38x it seems that the controller works as
+			 * if it first set the MVTWSI_CONTROL_IFLAG in the
+			 * control register and only after that it changed the
+			 * status register.
+			 * This sometimes caused weird bugs which only appeared
+			 * on selected I2C speeds and even then only sometimes.
+			 * We therefore add here a simple ndealy(100), which
+			 * seems to fix this weird bug.
+			 */
+			ndelay(100);
 			status = readl(&twsi->status);
 			if (status == expected_status)
 				return 0;
@@ -464,7 +483,7 @@ static uint __twsi_i2c_set_bus_speed(struct mvtwsi_registers *twsi,
 	writel(baud, &twsi->baudrate);
 
 	/* Wait for controller for one tick */
-#ifdef CONFIG_DM_I2C
+#if CONFIG_IS_ENABLED(DM_I2C)
 	ndelay(calc_tick(highest_speed));
 #else
 	ndelay(10000);
@@ -487,15 +506,19 @@ static uint __twsi_i2c_set_bus_speed(struct mvtwsi_registers *twsi,
 static void __twsi_i2c_init(struct mvtwsi_registers *twsi, int speed,
 			    int slaveadd, uint *actual_speed)
 {
+	uint tmp_speed;
+
 	/* Reset controller */
 	twsi_reset(twsi);
 	/* Set speed */
-	*actual_speed = __twsi_i2c_set_bus_speed(twsi, speed);
+	tmp_speed = __twsi_i2c_set_bus_speed(twsi, speed);
+	if (actual_speed)
+		*actual_speed = tmp_speed;
 	/* Set slave address; even though we don't use it */
 	writel(slaveadd, &twsi->slave_address);
 	writel(0, &twsi->xtnd_slave_addr);
 	/* Assert STOP, but don't care for the result */
-#ifdef CONFIG_DM_I2C
+#if CONFIG_IS_ENABLED(DM_I2C)
 	(void) twsi_stop(twsi, calc_tick(*actual_speed));
 #else
 	(void) twsi_stop(twsi, 10000);
@@ -662,7 +685,7 @@ static int __twsi_i2c_write(struct mvtwsi_registers *twsi, uchar chip,
 	return status != 0 ? status : stop_status;
 }
 
-#ifndef CONFIG_DM_I2C
+#if !CONFIG_IS_ENABLED(DM_I2C)
 static void twsi_i2c_init(struct i2c_adapter *adap, int speed,
 			  int slaveadd)
 {
@@ -774,11 +797,11 @@ static int mvtwsi_i2c_set_bus_speed(struct udevice *bus, uint speed)
 	return 0;
 }
 
-static int mvtwsi_i2c_ofdata_to_platdata(struct udevice *bus)
+static int mvtwsi_i2c_of_to_plat(struct udevice *bus)
 {
 	struct mvtwsi_i2c_dev *dev = dev_get_priv(bus);
 
-	dev->base = devfdt_get_addr_ptr(bus);
+	dev->base = dev_read_addr_ptr(bus);
 
 	if (!dev->base)
 		return -ENOMEM;
@@ -787,15 +810,45 @@ static int mvtwsi_i2c_ofdata_to_platdata(struct udevice *bus)
 				    "cell-index", -1);
 	dev->slaveadd = fdtdec_get_int(gd->fdt_blob, dev_of_offset(bus),
 				       "u-boot,i2c-slave-addr", 0x0);
-	dev->speed = fdtdec_get_int(gd->fdt_blob, dev_of_offset(bus),
-				    "clock-frequency", 100000);
+	dev->speed = dev_read_u32_default(bus, "clock-frequency",
+					  I2C_SPEED_STANDARD_RATE);
+
+	return 0;
+}
+
+static void twsi_disable_i2c_slave(struct mvtwsi_registers *twsi)
+{
+	clrbits_le32(&twsi->debug, BIT(18));
+}
+
+static int mvtwsi_i2c_bind(struct udevice *bus)
+{
+	struct mvtwsi_registers *twsi = dev_read_addr_ptr(bus);
+
+	/* Disable the hidden slave in i2c0 of these platforms */
+	if ((IS_ENABLED(CONFIG_ARMADA_38X) ||
+	     IS_ENABLED(CONFIG_ARCH_KIRKWOOD) ||
+	     IS_ENABLED(CONFIG_ARMADA_8K)) && !dev_seq(bus))
+		twsi_disable_i2c_slave(twsi);
+
 	return 0;
 }
 
 static int mvtwsi_i2c_probe(struct udevice *bus)
 {
 	struct mvtwsi_i2c_dev *dev = dev_get_priv(bus);
+	struct reset_ctl reset;
+	struct clk clk;
 	uint actual_speed;
+	int ret;
+
+	ret = reset_get_by_index(bus, 0, &reset);
+	if (!ret)
+		reset_deassert(&reset);
+
+	ret = clk_get_by_index(bus, 0, &clk);
+	if (!ret)
+		clk_enable(&clk);
 
 	__twsi_i2c_init(dev->base, dev->speed, dev->slaveadd, &actual_speed);
 	dev->speed = actual_speed;
@@ -847,9 +900,10 @@ U_BOOT_DRIVER(i2c_mvtwsi) = {
 	.name = "i2c_mvtwsi",
 	.id = UCLASS_I2C,
 	.of_match = mvtwsi_i2c_ids,
+	.bind = mvtwsi_i2c_bind,
 	.probe = mvtwsi_i2c_probe,
-	.ofdata_to_platdata = mvtwsi_i2c_ofdata_to_platdata,
-	.priv_auto_alloc_size = sizeof(struct mvtwsi_i2c_dev),
+	.of_to_plat = mvtwsi_i2c_of_to_plat,
+	.priv_auto	= sizeof(struct mvtwsi_i2c_dev),
 	.ops = &mvtwsi_i2c_ops,
 };
 #endif /* CONFIG_DM_I2C */

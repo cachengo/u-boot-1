@@ -1,7 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2016 Heiko Stuebner <heiko@sntech.de>
- *
- * SPDX-License-Identifier:     GPL-2.0+
  */
 #ifndef _ASM_ARCH_CRU_RK3188_H
 #define _ASM_ARCH_CRU_RK3188_H
@@ -136,13 +135,6 @@ enum {
 
 	SDIO_DIV_SHIFT		= 0,
 	SDIO_DIV_MASK		= 0x3f,
-};
-
-/* CRU_CLKSEL24_CON */
-enum {
-	SARADC_DIV_SHIFT	= 8,
-	SARADC_DIV_MASK		=GENMASK(15, 8),
-	SARADC_DIV_WIDTH	= 8,
 };
 
 /* CRU_CLKSEL25_CON */

@@ -1,15 +1,16 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2012 SAMSUNG Electronics
  * Jaehoon Chung <jh80.chung@samsung.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __DWMMC_HW_H
 #define __DWMMC_HW_H
 
+#include <asm/cache.h>
 #include <asm/io.h>
 #include <mmc.h>
+#include <linux/bitops.h>
 
 #define DWMCI_CTRL		0x000
 #define	DWMCI_PWREN		0x004
@@ -57,6 +58,7 @@
 #define DWMCI_INTMSK_DTO	(1 << 3)
 #define DWMCI_INTMSK_TXDR	(1 << 4)
 #define DWMCI_INTMSK_RXDR	(1 << 5)
+#define DWMCI_INTMSK_RCRC	(1 << 6)
 #define DWMCI_INTMSK_DCRC	(1 << 7)
 #define DWMCI_INTMSK_RTO	(1 << 8)
 #define DWMCI_INTMSK_DRTO	(1 << 9)
@@ -104,6 +106,8 @@
 #define DWMCI_CTYPE_8BIT	(1 << 16)
 
 /* Status Register */
+#define DWMCI_FIFO_EMPTY	(1 << 2)
+#define DWMCI_FIFO_FULL		(1 << 3)
 #define DWMCI_BUSY		(1 << 9)
 #define DWMCI_FIFO_MASK		0x1fff
 #define DWMCI_FIFO_SHIFT	17
@@ -114,10 +118,6 @@
 #define TX_WMARK(x)		(x)
 #define RX_WMARK_SHIFT		16
 #define RX_WMARK_MASK		(0xfff << RX_WMARK_SHIFT)
-
-/* HCON Register */
-#define DMA_INTERFACE_IDMA		(0x0)
-#define SDMMC_GET_TRANS_MODE(x)		(((x)>>16) & 0x3)
 
 #define DWMCI_IDMAC_OWN		(1 << 31)
 #define DWMCI_IDMAC_CH		(1 << 4)
@@ -131,6 +131,13 @@
 
 /* UHS register */
 #define DWMCI_DDR_MODE	(1 << 16)
+
+/* Internal IDMAC interrupt defines */
+#define DWMCI_IDINTEN_RI		BIT(1)
+#define DWMCI_IDINTEN_TI		BIT(0)
+
+#define DWMCI_IDINTEN_MASK	(DWMCI_IDINTEN_TI | \
+				 DWMCI_IDINTEN_RI)
 
 /* quirks */
 #define DWMCI_QUIRK_DISABLE_SMU		(1 << 0)
@@ -150,7 +157,6 @@
  * @fifoth_val:	Value for FIFOTH register (or 0 to leave unset)
  * @mmc:	Pointer to generic MMC structure for this device
  * @priv:	Private pointer for use by controller
- * @stride_pio: Provide the ability of accessing fifo with burst mode
  */
 struct dwmci_host {
 	const char *name;
@@ -167,9 +173,8 @@ struct dwmci_host {
 	u32 fifoth_val;
 	struct mmc *mmc;
 	void *priv;
-	bool stride_pio;
 
-	void (*clksel)(struct dwmci_host *host);
+	int (*clksel)(struct dwmci_host *host);
 	void (*board_init)(struct dwmci_host *host);
 
 	/**
@@ -186,7 +191,6 @@ struct dwmci_host {
 	 * @freq:	Frequency the host is trying to achieve
 	 */
 	unsigned int (*get_mmc_clk)(struct dwmci_host *host, uint freq);
-	int (*execute_tuning)(struct dwmci_host *host, u32 opcode);
 #ifndef CONFIG_BLK
 	struct mmc_config cfg;
 #endif
@@ -252,10 +256,10 @@ static inline u8 dwmci_readb(struct dwmci_host *host, int reg)
  * ...
  *
  * Inside U_BOOT_DRIVER():
- *	.platdata_auto_alloc_size = sizeof(struct rockchip_mmc_plat),
+ *	.plat_auto	= sizeof(struct rockchip_mmc_plat),
  *
  * To access platform data:
- *	struct rockchip_mmc_plat *plat = dev_get_platdata(dev);
+ *	struct rockchip_mmc_plat *plat = dev_get_plat(dev);
  *
  * See rockchip_dw_mmc.c for an example.
  *

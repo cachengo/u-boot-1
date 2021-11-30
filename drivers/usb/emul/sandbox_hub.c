@@ -1,22 +1,20 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2015 Google, Inc
  * Written by Simon Glass <sjg@chromium.org>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
 #include <dm.h>
+#include <log.h>
 #include <usb.h>
 #include <dm/device-internal.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 /* We only support up to 8 */
 #define SANDBOX_NUM_PORTS	4
 
-struct sandbox_hub_platdata {
-	struct usb_dev_platdata plat;
+struct sandbox_hub_plat {
+	struct usb_dev_plat plat;
 	int port;	/* Port number (numbered from 0) */
 };
 
@@ -121,18 +119,40 @@ struct sandbox_hub_priv {
 	int change[SANDBOX_NUM_PORTS];
 };
 
-static struct udevice *hub_find_device(struct udevice *hub, int port)
+static struct udevice *hub_find_device(struct udevice *hub, int port,
+				       enum usb_device_speed *speed)
 {
 	struct udevice *dev;
+	struct usb_generic_descriptor **gen_desc;
+	struct usb_device_descriptor **dev_desc;
 
 	for (device_find_first_child(hub, &dev);
 	     dev;
 	     device_find_next_child(&dev)) {
-		struct sandbox_hub_platdata *plat;
+		struct sandbox_hub_plat *plat;
 
-		plat = dev_get_parent_platdata(dev);
-		if (plat->port == port)
+		plat = dev_get_parent_plat(dev);
+		if (plat->port == port) {
+			gen_desc = plat->plat.desc_list;
+			gen_desc = usb_emul_find_descriptor(gen_desc,
+							    USB_DT_DEVICE, 0);
+			dev_desc = (struct usb_device_descriptor **)gen_desc;
+
+			switch (le16_to_cpu((*dev_desc)->bcdUSB)) {
+			case 0x0100:
+				*speed = USB_SPEED_LOW;
+				break;
+			case 0x0101:
+				*speed = USB_SPEED_FULL;
+				break;
+			case 0x0200:
+			default:
+				*speed = USB_SPEED_HIGH;
+				break;
+			}
+
 			return dev;
+		}
 	}
 
 	return NULL;
@@ -146,7 +166,8 @@ static int clrset_post_state(struct udevice *hub, int port, int clear, int set)
 	int ret = 0;
 
 	if ((clear | set) & USB_PORT_STAT_POWER) {
-		struct udevice *dev = hub_find_device(hub, port);
+		enum usb_device_speed speed;
+		struct udevice *dev = hub_find_device(hub, port, &speed);
 
 		if (dev) {
 			if (set & USB_PORT_STAT_POWER) {
@@ -156,6 +177,10 @@ static int clrset_post_state(struct udevice *hub, int port, int clear, int set)
 				if (!ret) {
 					set |= USB_PORT_STAT_CONNECTION |
 						USB_PORT_STAT_ENABLE;
+					if (speed == USB_SPEED_LOW)
+						set |= USB_PORT_STAT_LOW_SPEED;
+					else if (speed == USB_SPEED_HIGH)
+						set |= USB_PORT_STAT_HIGH_SPEED;
 				}
 
 			} else if (clear & USB_PORT_STAT_POWER) {
@@ -274,15 +299,16 @@ static int sandbox_hub_submit_control_msg(struct udevice *bus,
 
 static int sandbox_hub_bind(struct udevice *dev)
 {
-	return usb_emul_setup_device(dev, PACKET_SIZE_64, hub_strings,
-				     hub_desc_list);
+	return usb_emul_setup_device(dev, hub_strings, hub_desc_list);
 }
 
 static int sandbox_child_post_bind(struct udevice *dev)
 {
-	struct sandbox_hub_platdata *plat = dev_get_parent_platdata(dev);
+	struct sandbox_hub_plat *plat = dev_get_parent_plat(dev);
+	struct usb_emul_plat *emul = dev_get_uclass_plat(dev);
 
 	plat->port = dev_read_u32_default(dev, "reg", -1);
+	emul->port1 = plat->port + 1;
 
 	return 0;
 }
@@ -302,8 +328,7 @@ U_BOOT_DRIVER(usb_sandbox_hub) = {
 	.of_match = sandbox_usb_hub_ids,
 	.bind	= sandbox_hub_bind,
 	.ops	= &sandbox_usb_hub_ops,
-	.priv_auto_alloc_size = sizeof(struct sandbox_hub_priv),
-	.per_child_platdata_auto_alloc_size =
-			sizeof(struct sandbox_hub_platdata),
+	.priv_auto	= sizeof(struct sandbox_hub_priv),
+	.per_child_plat_auto	= sizeof(struct sandbox_hub_plat),
 	.child_post_bind = sandbox_child_post_bind,
 };

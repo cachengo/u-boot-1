@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2017 Fuzhou Rockchip Electronics Co., Ltd.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <dt-bindings/gpio/gpio.h>
@@ -169,51 +168,6 @@
 		u-boot,dm-pre-reloc;
 		compatible = "rockchip,rk3228-grf", "syscon";
 		reg = <0x11000000 0x1000>;
-		#address-cells = <1>;
-		#size-cells = <1>;
-
-		u2phy0: usb2-phy@760 {
-			compatible = "rockchip,rk322x-usb2phy";
-			reg = <0x0760 0x0c>;
-			status = "disabled";
-
-			u2phy0_otg: otg-port {
-				#phy-cells = <0>;
-				interrupts = <GIC_SPI 59 IRQ_TYPE_LEVEL_HIGH>,
-					     <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>,
-					     <GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>;
-				interrupt-names = "otg-bvalid", "otg-id",
-						  "linestate";
-				status = "disabled";
-			};
-
-			u2phy0_host: host-port {
-				#phy-cells = <0>;
-				interrupts = <GIC_SPI 62 IRQ_TYPE_LEVEL_HIGH>;
-				interrupt-names = "linestate";
-				status = "disabled";
-			};
-		};
-
-		u2phy1: usb2-phy@800 {
-			compatible = "rockchip,rk322x-usb2phy";
-			reg = <0x0800 0x0c>;
-			status = "disabled";
-
-			u2phy1_otg: otg-port {
-				#phy-cells = <0>;
-				interrupts = <GIC_SPI 69 IRQ_TYPE_LEVEL_HIGH>;
-				interrupt-names = "linestate";
-				status = "disabled";
-			};
-
-			u2phy1_host: host-port {
-				#phy-cells = <0>;
-				interrupts = <GIC_SPI 68 IRQ_TYPE_LEVEL_HIGH>;
-				interrupt-names = "linestate";
-				status = "disabled";
-			};
-		};
 	};
 
 	uart0: serial@11010000 {
@@ -256,23 +210,6 @@
 		reg-shift = <2>;
 		reg-io-width = <4>;
 		status = "disabled";
-	};
-
-	efuse: efuse@11040000 {
-		compatible = "rockchip,rk322x-efuse";
-		reg = <0x11040000 0x20>;
-		#address-cells = <1>;
-		#size-cells = <1>;
-		clocks = <&cru PCLK_EFUSE_256>;
-		clock-names = "pclk_efuse";
-
-		/* Data cells */
-		efuse_id: id@7 {
-			reg = <0x7 0x10>;
-		};
-		cpu_leakage: cpu_leakage@17 {
-			reg = <0x17 0x1>;
-		};
 	};
 
 	i2c0: i2c@11050000 {
@@ -333,7 +270,7 @@
 		#pwm-cells = <3>;
 		clocks = <&cru PCLK_PWM>;
 		clock-names = "pwm";
-		pinctrl-names = "active";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pwm0_pin>;
 		status = "disabled";
 	};
@@ -344,7 +281,7 @@
 		#pwm-cells = <3>;
 		clocks = <&cru PCLK_PWM>;
 		clock-names = "pwm";
-		pinctrl-names = "active";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pwm1_pin>;
 		status = "disabled";
 	};
@@ -355,7 +292,7 @@
 		#pwm-cells = <3>;
 		clocks = <&cru PCLK_PWM>;
 		clock-names = "pwm";
-		pinctrl-names = "active";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pwm2_pin>;
 		status = "disabled";
 	};
@@ -366,7 +303,7 @@
 		#pwm-cells = <2>;
 		clocks = <&cru PCLK_PWM>;
 		clock-names = "pwm";
-		pinctrl-names = "active";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pwm3_pin>;
 		status = "disabled";
 	};
@@ -454,7 +391,7 @@
 		interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&cru HCLK_SDMMC>, <&cru SCLK_SDMMC>,
 			 <&cru SCLK_SDMMC_DRV>, <&cru SCLK_SDMMC_SAMPLE>;
-		clock-names = "biu", "ciu", "ciu-drv", "ciu-sample";
+		clock-names = "biu", "ciu", "ciu_drv", "ciu_sample";
 		fifo-depth = <0x100>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&sdmmc_clk &sdmmc_cmd &sdmmc_bus4>;
@@ -467,7 +404,7 @@
 		interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&cru HCLK_SDIO>, <&cru SCLK_SDIO>,
 			 <&cru SCLK_SDIO_DRV>, <&cru SCLK_SDIO_SAMPLE>;
-		clock-names = "biu", "ciu", "ciu-drv", "ciu-sample";
+		clock-names = "biu", "ciu", "ciu_drv", "ciu_sample";
 		fifo-depth = <0x100>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&sdio_clk &sdio_cmd &sdio_bus4>;
@@ -481,7 +418,7 @@
 		interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&cru HCLK_EMMC>, <&cru SCLK_EMMC>,
 			 <&cru SCLK_EMMC_DRV>, <&cru SCLK_EMMC_SAMPLE>;
-		clock-names = "biu", "ciu", "ciu-drv", "ciu-sample";
+		clock-names = "biu", "ciu", "ciu_drv", "ciu_sample";
 		bus-width = <8>;
 		default-sample-phase = <158>;
 		num-slots = <1>;
@@ -500,8 +437,6 @@
 		interrupts = <GIC_SPI 23 IRQ_TYPE_LEVEL_HIGH>;
 		hnp-srp-disable;
 		dr_mode = "otg";
-		phys = <&u2phy0_otg>;
-		phy-names = "usb2-phy";
 		status = "disabled";
 	};
 

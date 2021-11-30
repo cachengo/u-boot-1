@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (C) 2011
  * Stefan Herbrechtsmeier <stefan@herbrechtsmeier.net>
@@ -6,36 +7,17 @@
  * (C) Copyright 2009
  * Marvell Semiconductor <www.marvell.com>
  * Written-by: Prafulla Wadaskar <prafulla@marvell.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _CONFIG_DNS325_H
 #define _CONFIG_DNS325_H
 
 /*
- * Machine number definition
- */
-#define CONFIG_MACH_TYPE		MACH_TYPE_DNS325
-
-/*
  * High Level Configuration Options (easy to change)
  */
 #define CONFIG_FEROCEON_88FR131		/* CPU Core subversion */
 #define CONFIG_KW88F6281		/* SOC Name */
-#define CONFIG_SKIP_LOWLEVEL_INIT	/* disable board lowlevel_init */
 
-/*
- * Commands configuration
- */
-#define CONFIG_SYS_MVFS
-
-#define CONFIG_NR_DRAM_BANKS		1
-
-/*
- * mv-common.h should be defined after CMD configs since it used them
- * to enable certain macros
- */
 #include "mv-common.h"
 
 /* Remove or override few declarations from mv-common.h */
@@ -45,22 +27,6 @@
  */
 #ifdef CONFIG_CMD_NET
 #define CONFIG_MVGBE_PORTS		{1, 0} /* enable port 0 only */
-#define CONFIG_NETCONSOLE
-#endif
-
-/*
- * SATA Driver configuration
- */
-#ifdef CONFIG_MVSATA_IDE
-#define CONFIG_SYS_ATA_IDE0_OFFSET      MV_SATA_PORT0_OFFSET
-#define CONFIG_SYS_ATA_IDE1_OFFSET      MV_SATA_PORT1_OFFSET
-#endif
-
-/*
- * RTC driver configuration
- */
-#ifdef CONFIG_CMD_DATE
-#define CONFIG_RTC_MV
 #endif
 
 /*
@@ -71,21 +37,10 @@
 /*
  * Environment variables configurations
  */
-#ifdef CONFIG_CMD_NAND
-#define CONFIG_ENV_SECT_SIZE		0x20000	/* 128KB */
-#endif
-
-#define CONFIG_ENV_SIZE			0x20000	/* 128KB */
-#define CONFIG_ENV_ADDR			0xe0000
-#define CONFIG_ENV_OFFSET		0xe0000	/* env starts here */
 
 /*
  * Default environment variables
  */
-#define MTDIDS_DEFAULT			"nand0=orion_nand"
-
-#define MTDPARTS_DEFAULT		"mtdparts=orion_nand:" \
-	"896k(u-boot),128k(u-boot-env),5m(kernel),-(rootfs)\0"
 
 #define CONFIG_EXTRA_ENV_SETTINGS \
 	"stdin=serial\0" \
@@ -94,7 +49,7 @@
 	"loadaddr=0x800000\0" \
 	"autoload=no\0" \
 	"console=ttyS0,115200\0" \
-	"mtdparts="MTDPARTS_DEFAULT \
+	"mtdparts="CONFIG_MTDPARTS_DEFAULT \
 	"optargs=\0" \
 	"bootenv=uEnv.txt\0" \
 	"importbootenv=echo Importing environment ...; " \

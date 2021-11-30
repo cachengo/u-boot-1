@@ -1,9 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2011
  * Marvell Semiconductor <www.marvell.com>
  * Written-by: Lei Wen <leiwen@marvell.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -39,7 +38,6 @@
 
 /* Kirkwood has 2k of Security SRAM, use it for SP */
 #define CONFIG_SYS_INIT_SP_ADDR		0xC8012000
-#define CONFIG_NR_DRAM_BANKS_MAX	2
 
 #define CONFIG_I2C_MVTWSI_BASE0	KW_TWSI_BASE
 #define MV_UART_CONSOLE_BASE	KW_UART0_BASE
@@ -57,31 +55,10 @@
 #endif
 
 /*
- * SPI Flash configuration
- */
-#ifdef CONFIG_CMD_SF
-#define CONFIG_HARD_SPI			1
-#define CONFIG_KIRKWOOD_SPI		1
-#ifndef CONFIG_ENV_SPI_BUS
-# define CONFIG_ENV_SPI_BUS		0
-#endif
-#ifndef CONFIG_ENV_SPI_CS
-# define CONFIG_ENV_SPI_CS		0
-#endif
-#ifndef CONFIG_ENV_SPI_MAX_HZ
-# define CONFIG_ENV_SPI_MAX_HZ		50000000
-#endif
-#endif
-
-/*
  * Ethernet Driver configuration
  */
 #ifdef CONFIG_CMD_NET
-#define CONFIG_NETCONSOLE	/* include NetConsole support   */
-#define CONFIG_MII		/* expose smi ove miiphy interface */
-#define CONFIG_MVGBE		/* Enable Marvell Gbe Controller Driver */
 #define CONFIG_SYS_FAULT_ECHO_LINK_DOWN	/* detect link using phy */
-#define CONFIG_ENV_OVERWRITE	/* ethaddr can be reprogrammed */
 #define CONFIG_RESET_PHY_R	/* use reset_phy() to init mv8831116 PHY */
 #endif /* CONFIG_CMD_NET */
 
@@ -97,9 +74,6 @@
  */
 #ifdef CONFIG_IDE
 #define __io
-#define CONFIG_MVSATA_IDE
-#define CONFIG_IDE_PREINIT
-#define CONFIG_MVSATA_IDE_USE_PORT1
 /* Needs byte-swapping for ATA data register */
 #define CONFIG_IDE_SWAP_IO
 /* Data, registers and alternate blocks are at the same offset */
@@ -116,18 +90,6 @@
 /* ATA registers base is at SATA controller base */
 #define CONFIG_SYS_ATA_BASE_ADDR	MV_SATA_BASE
 #endif /* CONFIG_IDE */
-
-/*
- * I2C related stuff
- */
-#ifdef CONFIG_CMD_I2C
-#ifndef CONFIG_SYS_I2C_SOFT
-#define CONFIG_SYS_I2C
-#define CONFIG_SYS_I2C_MVTWSI
-#endif
-#define CONFIG_SYS_I2C_SLAVE		0x0
-#define CONFIG_SYS_I2C_SPEED		100000
-#endif
 
 /* Use common timer */
 #define CONFIG_SYS_TIMER_COUNTS_DOWN

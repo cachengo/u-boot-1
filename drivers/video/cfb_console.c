@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2002 ELTEC Elektronik AG
  * Frank Gottschling <fgottschling@eltec.de>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -66,36 +65,18 @@
  */
 
 #include <common.h>
+#include <command.h>
+#include <cpu_func.h>
+#include <env.h>
 #include <fdtdec.h>
-#include <version.h>
+#include <gzip.h>
+#include <log.h>
+#include <version_string.h>
 #include <malloc.h>
 #include <video.h>
+#include <asm/global_data.h>
+#include <dm/ofnode.h>
 #include <linux/compiler.h>
-
-#if defined(CONFIG_VIDEO_MXS)
-#define VIDEO_FB_16BPP_WORD_SWAP
-#endif
-
-/*
- * Defines for the MB862xx driver
- */
-#ifdef CONFIG_VIDEO_MB862xx
-
-#ifdef CONFIG_VIDEO_CORALP
-#define VIDEO_FB_LITTLE_ENDIAN
-#endif
-#ifdef CONFIG_VIDEO_MB862xx_ACCEL
-#define VIDEO_HW_RECTFILL
-#define VIDEO_HW_BITBLT
-#endif
-#endif
-
-/*
- * Defines for the i.MX31 driver (mx3fb.c)
- */
-#if defined(CONFIG_VIDEO_MX3) || defined(CONFIG_VIDEO_IPUV3)
-#define VIDEO_FB_16BPP_WORD_SWAP
-#endif
 
 /*
  * Include video_fb.h after definitions of VIDEO_HW_RECTFILL etc.
@@ -117,7 +98,6 @@
  * Console device
  */
 
-#include <version.h>
 #include <linux/types.h>
 #include <stdio_dev.h>
 #include <video_font.h>
@@ -768,7 +748,7 @@ static void parse_putc(const char c)
 		break;
 
 	case '\n':		/* next line */
-		if (console_col || (!console_col && nl))
+		if (console_col || nl)
 			console_newline(1);
 		nl = 1;
 		break;
@@ -1298,6 +1278,10 @@ next_run:
 			break;
 		}
 	}
+
+	if (cfb_do_flush_cache)
+		flush_cache(VIDEO_FB_ADRS, VIDEO_SIZE);
+
 	return 0;
 error:
 	printf("Error: Too much encoded pixel data, validate your bitmap\n");
@@ -1704,7 +1688,8 @@ static void logo_black(void)
 			1);
 }
 
-static int do_clrlogo(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
+static int do_clrlogo(struct cmd_tbl *cmdtp, int flag, int argc,
+		      char *const argv[])
 {
 	if (argc != 1)
 		return cmd_usage(cmdtp);
@@ -1861,7 +1846,7 @@ static void *video_logo(void)
 		ret = splash_screen_prepare();
 		if (ret < 0)
 			return video_fb_address;
-		addr = simple_strtoul(s, NULL, 16);
+		addr = hextoul(s, NULL);
 
 		if (video_display_bitmap(addr,
 					video_logo_xpos,
@@ -1900,16 +1885,32 @@ static void *video_logo(void)
 	sprintf(info, " %s", version_string);
 
 #ifndef CONFIG_HIDE_LOGO_VERSION
-	space = (VIDEO_LINE_LEN / 2 - VIDEO_INFO_X) / VIDEO_FONT_WIDTH;
+	space = (VIDEO_COLS - VIDEO_INFO_X) / VIDEO_FONT_WIDTH;
 	len = strlen(info);
 
 	if (len > space) {
-		video_drawchars(VIDEO_INFO_X, VIDEO_INFO_Y,
-				(uchar *) info, space);
-		video_drawchars(VIDEO_INFO_X + VIDEO_FONT_WIDTH,
-				VIDEO_INFO_Y + VIDEO_FONT_HEIGHT,
-				(uchar *) info + space, len - space);
-		y_off = 1;
+		int xx = VIDEO_INFO_X, yy = VIDEO_INFO_Y;
+		uchar *p = (uchar *) info;
+
+		while (len) {
+			if (len > space) {
+				video_drawchars(xx, yy, p, space);
+				len -= space;
+
+				p = (uchar *)p + space;
+
+				if (!y_off) {
+					xx += VIDEO_FONT_WIDTH;
+					space--;
+				}
+				yy += VIDEO_FONT_HEIGHT;
+
+				y_off++;
+			} else {
+				video_drawchars(xx, yy, p, len);
+				len = 0;
+			}
+		}
 	} else
 		video_drawstring(VIDEO_INFO_X, VIDEO_INFO_Y, (uchar *) info);
 
@@ -1957,9 +1958,7 @@ static void *video_logo(void)
 
 static int cfb_fb_is_in_dram(void)
 {
-	bd_t *bd = gd->bd;
-#if defined(CONFIG_ARM) || defined(CONFIG_NDS32) || \
-defined(CONFIG_SANDBOX) || defined(CONFIG_X86)
+	struct bd_info *bd = gd->bd;
 	ulong start, end;
 	int i;
 
@@ -1970,11 +1969,7 @@ defined(CONFIG_SANDBOX) || defined(CONFIG_X86)
 		    (ulong)video_fb_address < end)
 			return 1;
 	}
-#else
-	if ((ulong)video_fb_address >= bd->bi_memstart &&
-	    (ulong)video_fb_address < bd->bi_memstart + bd->bi_memsize)
-		return 1;
-#endif
+
 	return 0;
 }
 
@@ -2081,7 +2076,8 @@ static int cfg_video_init(void)
 	}
 	eorx = fgx ^ bgx;
 
-	video_clear();
+	if (!CONFIG_IS_ENABLED(NO_FB_CLEAR))
+		video_clear();
 
 #ifdef CONFIG_VIDEO_LOGO
 	/* Plot the logo and get start point of console */
@@ -2131,8 +2127,7 @@ int drv_video_init(void)
 #if defined(CONFIG_VGA_AS_SINGLE_DEVICE)
 	have_keyboard = false;
 #elif defined(CONFIG_OF_CONTROL)
-	have_keyboard = !fdtdec_get_config_bool(gd->fdt_blob,
-						"u-boot,no-keyboard");
+	have_keyboard = !ofnode_conf_read_bool("u-boot,no-keyboard");
 #else
 	have_keyboard = true;
 #endif

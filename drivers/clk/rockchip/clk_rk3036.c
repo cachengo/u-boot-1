@@ -1,23 +1,25 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * (C) Copyright 2015 Google, Inc
- *
- * SPDX-License-Identifier:	GPL-2.0
  */
 
 #include <common.h>
 #include <clk-uclass.h>
 #include <dm.h>
 #include <errno.h>
+#include <log.h>
+#include <malloc.h>
 #include <syscon.h>
 #include <asm/io.h>
-#include <asm/arch/clock.h>
-#include <asm/arch/cru_rk3036.h>
-#include <asm/arch/hardware.h>
+#include <asm/arch-rockchip/clock.h>
+#include <asm/arch-rockchip/cru_rk3036.h>
+#include <asm/arch-rockchip/hardware.h>
+#include <dm/device-internal.h>
 #include <dm/lists.h>
 #include <dt-bindings/clock/rk3036-cru.h>
+#include <linux/delay.h>
 #include <linux/log2.h>
-
-DECLARE_GLOBAL_DATA_PTR;
+#include <linux/stringify.h>
 
 enum {
 	VCO_MAX_HZ	= 2400U * 1000000,
@@ -64,18 +66,12 @@ static int rkclk_set_pll(struct rk3036_cru *cru, enum rk_clk_id clk_id,
 	/* use integer mode */
 	rk_setreg(&pll->con1, 1 << PLL_DSMPD_SHIFT);
 
-	/* Power down */
-	rk_setreg(&pll->con1, 1 << PLL_PD_SHIFT);
-
 	rk_clrsetreg(&pll->con0,
 		     PLL_POSTDIV1_MASK | PLL_FBDIV_MASK,
 		     (div->postdiv1 << PLL_POSTDIV1_SHIFT) | div->fbdiv);
 	rk_clrsetreg(&pll->con1, PLL_POSTDIV2_MASK | PLL_REFDIV_MASK,
 		     (div->postdiv2 << PLL_POSTDIV2_SHIFT |
 		     div->refdiv << PLL_REFDIV_SHIFT));
-
-	/* Power Up */
-	rk_clrreg(&pll->con1, 1 << PLL_PD_SHIFT);
 
 	/* waiting for pll lock */
 	while (readl(&pll->con1) & (1 << PLL_LOCK_STATUS_SHIFT))
@@ -122,17 +118,17 @@ static void rkclk_init(struct rk3036_cru *cru)
 		     pclk_div << CORE_PERI_DIV_SHIFT);
 
 	/*
-	 * select gpll as pd_bus bus clock source and
+	 * select apll as pd_bus bus clock source and
 	 * set up dependent divisors for PCLK/HCLK and ACLK clocks.
 	 */
 	aclk_div = GPLL_HZ / BUS_ACLK_HZ - 1;
 	assert((aclk_div + 1) * BUS_ACLK_HZ == GPLL_HZ && aclk_div <= 0x1f);
 
-	pclk_div = BUS_ACLK_HZ / BUS_PCLK_HZ - 1;
-	assert((pclk_div + 1) * BUS_PCLK_HZ == BUS_ACLK_HZ && pclk_div <= 0x7);
+	pclk_div = GPLL_HZ / BUS_PCLK_HZ - 1;
+	assert((pclk_div + 1) * BUS_PCLK_HZ == GPLL_HZ && pclk_div <= 0x7);
 
-	hclk_div = BUS_ACLK_HZ / BUS_HCLK_HZ - 1;
-	assert((hclk_div + 1) * BUS_HCLK_HZ == BUS_ACLK_HZ && hclk_div <= 0x3);
+	hclk_div = GPLL_HZ / BUS_HCLK_HZ - 1;
+	assert((hclk_div + 1) * BUS_HCLK_HZ == GPLL_HZ && hclk_div <= 0x3);
 
 	rk_clrsetreg(&cru->cru_clksel_con[0],
 		     BUS_ACLK_PLL_SEL_MASK | BUS_ACLK_DIV_MASK,
@@ -323,7 +319,7 @@ static struct clk_ops rk3036_clk_ops = {
 	.set_rate	= rk3036_clk_set_rate,
 };
 
-static int rk3036_clk_ofdata_to_platdata(struct udevice *dev)
+static int rk3036_clk_of_to_plat(struct udevice *dev)
 {
 	struct rk3036_clk_priv *priv = dev_get_priv(dev);
 
@@ -344,9 +340,8 @@ static int rk3036_clk_probe(struct udevice *dev)
 static int rk3036_clk_bind(struct udevice *dev)
 {
 	int ret;
-	struct udevice *sys_child, *sf_child;
+	struct udevice *sys_child;
 	struct sysreset_reg *priv;
-	struct softreset_reg *sf_priv;
 
 	/* The reset driver does not have a device node, so bind it here */
 	ret = device_bind_driver(dev, "rockchip_sysreset", "sysreset",
@@ -359,20 +354,15 @@ static int rk3036_clk_bind(struct udevice *dev)
 						    cru_glb_srst_fst_value);
 		priv->glb_srst_snd_value = offsetof(struct rk3036_cru,
 						    cru_glb_srst_snd_value);
-		sys_child->priv = priv;
+		dev_set_priv(sys_child, priv);
 	}
 
-	ret = device_bind_driver_to_node(dev, "rockchip_reset", "reset",
-					 dev_ofnode(dev), &sf_child);
-	if (ret) {
-		debug("Warning: No rockchip reset driver: ret=%d\n", ret);
-	} else {
-		sf_priv = malloc(sizeof(struct softreset_reg));
-		sf_priv->sf_reset_offset = offsetof(struct rk3036_cru,
-						    cru_softrst_con[0]);
-		sf_priv->sf_reset_num = 9;
-		sf_child->priv = sf_priv;
-	}
+#if CONFIG_IS_ENABLED(RESET_ROCKCHIP)
+	ret = offsetof(struct rk3036_cru, cru_softrst_con[0]);
+	ret = rockchip_reset_bind(dev, ret, 9);
+	if (ret)
+		debug("Warning: software reset driver bind faile\n");
+#endif
 
 	return 0;
 }
@@ -386,8 +376,8 @@ U_BOOT_DRIVER(rockchip_rk3036_cru) = {
 	.name		= "clk_rk3036",
 	.id		= UCLASS_CLK,
 	.of_match	= rk3036_clk_ids,
-	.priv_auto_alloc_size = sizeof(struct rk3036_clk_priv),
-	.ofdata_to_platdata = rk3036_clk_ofdata_to_platdata,
+	.priv_auto	= sizeof(struct rk3036_clk_priv),
+	.of_to_plat = rk3036_clk_of_to_plat,
 	.ops		= &rk3036_clk_ops,
 	.bind		= rk3036_clk_bind,
 	.probe		= rk3036_clk_probe,

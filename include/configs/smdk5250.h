@@ -1,9 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (C) 2012 Samsung Electronics
  *
  * Configuration settings for the SAMSUNG SMDK5250 board.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __CONFIG_SMDK_H
@@ -18,7 +17,5 @@
 #undef CONFIG_KEYBOARD
 
 #define CONFIG_BOARD_COMMON
-
-#define CONFIG_DEFAULT_CONSOLE		"console=ttySAC1,115200n8\0"
 
 #endif	/* __CONFIG_SMDK_H */

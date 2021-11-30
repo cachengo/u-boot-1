@@ -1,10 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (c) 2013 Google, Inc
  *
  * (C) Copyright 2012
  * Pavel Herrmann <morpheus.ibis@gmail.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _DM_LISTS_H_
@@ -17,7 +16,7 @@
  * lists_driver_lookup_name() - Return u_boot_driver corresponding to name
  *
  * This function returns a pointer to a driver given its name. This is used
- * for binding a driver given its name and platdata.
+ * for binding a driver given its name and plat.
  *
  * @name: Name of driver to look up
  * @return pointer to driver, or NULL if not found
@@ -36,12 +35,12 @@ struct uclass_driver *lists_uclass_lookup(enum uclass_id id);
 /**
  * lists_bind_drivers() - search for and bind all drivers to parent
  *
- * This searches the U_BOOT_DEVICE() structures and creates new devices for
+ * This searches the U_BOOT_DRVINFO() structures and creates new devices for
  * each one. The devices will have @parent as their parent.
  *
  * @parent: parent device (root)
- * @early_only: If true, bind only drivers with the DM_INIT_F flag. If false
- * bind all drivers.
+ * @pre_reloc_only: If true, bind only drivers with the DM_FLAG_PRE_RELOC flag.
+ * If false bind all drivers.
  */
 int lists_bind_drivers(struct udevice *parent, bool pre_reloc_only);
 
@@ -54,10 +53,14 @@ int lists_bind_drivers(struct udevice *parent, bool pre_reloc_only);
  * @parent: parent device (root)
  * @node: device tree node to bind
  * @devp: if non-NULL, returns a pointer to the bound device
+ * @drv: if non-NULL, force this driver to be bound
+ * @pre_reloc_only: If true, bind only nodes with special devicetree properties,
+ * or drivers with the DM_FLAG_PRE_RELOC flag. If false bind all drivers.
  * @return 0 if device was bound, -EINVAL if the device tree is invalid,
  * other -ve value on error
  */
-int lists_bind_fdt(struct udevice *parent, ofnode node, struct udevice **devp);
+int lists_bind_fdt(struct udevice *parent, ofnode node, struct udevice **devp,
+		   struct driver *drv, bool pre_reloc_only);
 
 /**
  * device_bind_driver() - bind a device to a driver
