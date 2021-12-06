@@ -352,7 +352,7 @@ static int rockchip_pcie_init_port(struct udevice *dev)
 
 	ret = readl_poll_sleep_timeout
 			(priv->apb_base + PCIE_CLIENT_BASIC_STATUS1,
-			status, PCIE_LINK_UP(status), 20, 500 * 1000);
+			status, PCIE_LINK_UP(status), 20, 5000 * 1000);
 	if (ret) {
 		dev_err(dev, "PCIe link training gen1 timeout!\n");
 		goto err_power_off_phy;
