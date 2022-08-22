@@ -13,6 +13,7 @@
 		mmc0 = &sdio0;
 		mmc1 = &sdmmc;
 		mmc2 = &sdhci;
+		spi1 = &spi1;
 	};
 
 	sdio_pwrseq: sdio-pwrseq {
@@ -713,3 +714,10 @@
 	status = "okay";
 };
 
+&spi1 {
+	status = "okay";
+	u-boot,dm-pre-reloc;
+	spi_flash: spiflash@0 {
+		u-boot,dm-pre-reloc;
+	};
+};
