@@ -136,7 +136,7 @@
     "ubifsload ${kernel_addr_r} /boot/${mender_kernel_name}; "
 #else
 # define MENDER_BOOTARGS                                                \
-    "setenv bootargs root=${mender_kernel_root} ${bootargs}; "
+    "setenv bootargs root=${mender_kernel_root} earlycon=uart8250,mmio panic=0 rw init=/sbin/init rootfstype=ext4 rootwait; "
 # define MENDER_LOAD_KERNEL_AND_FDT                                     \
     "if test \"${fdt_addr_r}\" != \"\"; then "                          \
     "load ${mender_uboot_root} ${fdt_addr_r} /boot/${mender_dtb_name}; " \
@@ -146,17 +146,17 @@
 #define MENDER_NVME_INIT						\
     "run boot_pci_enum;"                                                \
     "run nvme_init;"                                                    \
+    "nvme scan;"                                                        \
     "if nvme dev 0;"                                                    \
     "then devtype=nvme;fi;"
 #define MENDER_EXTLINUX							\
     "sysboot ${mender_uboot_root} any ${scriptaddr} /boot/${boot_syslinux_conf}"
 #define CONFIG_MENDER_BOOTCOMMAND                                       \
     "run mender_setup; "                                                \
-    MENDER_NVME_INIT							\
-    MENDER_EXTLINUX							\
-//    MENDER_BOOTARGS                                                     \
-//    MENDER_LOAD_KERNEL_AND_FDT                                          \
-//    "${mender_boot_kernel_type} ${kernel_addr_r} - ${fdt_addr_r}; "     \
+    MENDER_NVME_INIT                                                    \
+    MENDER_BOOTARGS                                                     \
+    MENDER_LOAD_KERNEL_AND_FDT                                          \
+    "${mender_boot_kernel_type} ${kernel_addr_r} - ${fdt_addr_r}; "     \
     "run mender_try_to_recover"
 
 #endif /* !MENDER_AUTO_PROBING */
