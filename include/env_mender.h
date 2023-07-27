@@ -136,7 +136,7 @@
     "ubifsload ${kernel_addr_r} /boot/${mender_kernel_name}; "
 #else
 # define MENDER_BOOTARGS                                                \
-    "setenv bootargs root=${mender_kernel_root} earlycon=uart8250,mmio panic=0 rw init=/sbin/init rootfstype=ext4 rootwait; "
+    "setenv bootargs root=${mender_kernel_root} earlycon=uart8250,mmio panic=0 rw init=/sbin/init rootfstype=ext4; "
 # define MENDER_LOAD_KERNEL_AND_FDT                                     \
     "if test \"${fdt_addr_r}\" != \"\"; then "                          \
     "load ${mender_uboot_root} ${fdt_addr_r} /boot/${mender_dtb_name}; " \
