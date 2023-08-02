@@ -23,8 +23,17 @@ static int rkusb_read_sector(struct ums *ums_dev,
 {
 	struct blk_desc *block_dev = &ums_dev->block_dev;
 	lbaint_t blkstart = start + ums_dev->start_sector;
+	int ret;
 
-	return blk_dread(block_dev, blkstart, blkcnt, buf);
+	if ((blkstart + blkcnt) > RKUSB_READ_LIMIT_ADDR) {
+		memset(buf, 0xcc, blkcnt * SECTOR_SIZE);
+		return blkcnt;
+	} else {
+		ret = blk_dread(block_dev, blkstart, blkcnt, buf);
+		if (!ret)
+			ret = -EIO;
+		return ret;
+	}
 }
 
 static int rkusb_write_sector(struct ums *ums_dev,
@@ -32,8 +41,18 @@ static int rkusb_write_sector(struct ums *ums_dev,
 {
 	struct blk_desc *block_dev = &ums_dev->block_dev;
 	lbaint_t blkstart = start + ums_dev->start_sector;
+	int ret;
 
-	return blk_dwrite(block_dev, blkstart, blkcnt, buf);
+	if (block_dev->if_type == IF_TYPE_MTD)
+		block_dev->op_flag |= BLK_MTD_CONT_WRITE;
+
+	ret = blk_dwrite(block_dev, blkstart, blkcnt, buf);
+	if (!ret)
+		ret = -EIO;
+
+	if (block_dev->if_type == IF_TYPE_MTD)
+		block_dev->op_flag &= ~(BLK_MTD_CONT_WRITE);
+	return ret;
 }
 
 static int rkusb_erase_sector(struct ums *ums_dev,
@@ -53,8 +72,8 @@ static void rkusb_fini(void)
 		free((void *)g_rkusb->ums[i].name);
 	free(g_rkusb->ums);
 	g_rkusb->ums = NULL;
-	g_rkusb = NULL;
 	g_rkusb->ums_cnt = 0;
+	g_rkusb = NULL;
 }
 
 #define RKUSB_NAME_LEN 16
@@ -140,6 +159,7 @@ static int do_rkusb(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 	unsigned int controller_index;
 	int rc;
 	int cable_ready_timeout __maybe_unused;
+	const char *s;
 
 	if (argc != 4)
 		return CMD_RET_USAGE;
@@ -148,14 +168,31 @@ static int do_rkusb(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 	devtype = argv[2];
 	devnum	= argv[3];
 
+	if (!strcmp(devtype, "mmc") && !strcmp(devnum, "1")) {
+		pr_err("Forbid to flash mmc 1(sdcard)\n");
+		return CMD_RET_FAILURE;
+	}
+
 	g_rkusb = &rkusb;
 	rc = rkusb_init(devtype, devnum);
 	if (rc < 0)
 		return CMD_RET_FAILURE;
 
+	if (g_rkusb->ums[0].block_dev.if_type == IF_TYPE_MTD &&
+	    g_rkusb->ums[0].block_dev.devnum == BLK_MTD_NAND) {
+#ifdef CONFIG_CMD_GO
+		pr_err("Enter bootrom rockusb...\n");
+		flushc();
+		run_command("rbrom", 0);
+#else
+		pr_err("rockusb: count not support loader upgrade!\n");
+#endif
+	}
+
 	controller_index = (unsigned int)(simple_strtoul(
 				usb_controller,	NULL, 0));
-	if (board_usb_init(controller_index, USB_INIT_DEVICE)) {
+	rc = usb_gadget_initialize(controller_index);
+	if (rc) {
 		pr_err("Couldn't init USB controller.");
 		rc = CMD_RET_FAILURE;
 		goto cleanup_rkusb;
@@ -166,6 +203,25 @@ static int do_rkusb(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 		pr_err("fsg_init failed");
 		rc = CMD_RET_FAILURE;
 		goto cleanup_board;
+	}
+
+	s = env_get("serial#");
+	if (s) {
+		char *sn = (char *)calloc(strlen(s) + 1, sizeof(char));
+		char *sn_p = sn;
+
+		if (!sn)
+			goto cleanup_board;
+
+		memcpy(sn, s, strlen(s));
+		while (*sn_p) {
+			if (*sn_p == '\\' || *sn_p == '/')
+				*sn_p = '_';
+			sn_p++;
+		}
+
+		g_dnl_set_serialnumber(sn);
+		free(sn);
 	}
 
 	rc = g_dnl_register("rkusb_ums_dnl");
@@ -221,14 +277,14 @@ static int do_rkusb(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 cleanup_register:
 	g_dnl_unregister();
 cleanup_board:
-	board_usb_cleanup(controller_index, USB_INIT_DEVICE);
+	usb_gadget_release(controller_index);
 cleanup_rkusb:
 	rkusb_fini();
 
 	return rc;
 }
 
-U_BOOT_CMD(rockusb, 4, 1, do_rkusb,
-	   "Use the rockusb Protocol",
-	   "<USB_controller> <devtype> <dev[:part]>  e.g. rockusb 0 mmc 0\n"
+U_BOOT_CMD_ALWAYS(rockusb, 4, 1, do_rkusb,
+		  "Use the rockusb Protocol",
+		  "<USB_controller> <devtype> <dev[:part]>  e.g. rockusb 0 mmc 0\n"
 );

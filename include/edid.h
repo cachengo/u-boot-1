@@ -351,6 +351,36 @@ struct edid_monitor_descriptor {
 				    DRM_EDID_YCBCR420_DC_36 | \
 				    DRM_EDID_YCBCR420_DC_30)
 
+/* HDMI 2.1 additional fields */
+#define DRM_EDID_MAX_FRL_RATE_MASK		0xf0
+#define DRM_EDID_FAPA_START_LOCATION		BIT(0)
+#define DRM_EDID_ALLM				BIT(1)
+#define DRM_EDID_FVA				BIT(2)
+
+/* Deep Color specific */
+#define DRM_EDID_DC_30BIT_420			BIT(0)
+#define DRM_EDID_DC_36BIT_420			BIT(1)
+#define DRM_EDID_DC_48BIT_420			BIT(2)
+
+/* VRR specific */
+#define DRM_EDID_CNMVRR				BIT(3)
+#define DRM_EDID_CINEMA_VRR			BIT(4)
+#define DRM_EDID_MDELTA				BIT(5)
+#define DRM_EDID_VRR_MAX_UPPER_MASK		0xc0
+#define DRM_EDID_VRR_MAX_LOWER_MASK		0xff
+#define DRM_EDID_VRR_MIN_MASK			0x3f
+
+/* DSC specific */
+#define DRM_EDID_DSC_10BPC			BIT(0)
+#define DRM_EDID_DSC_12BPC			BIT(1)
+#define DRM_EDID_DSC_16BPC			BIT(2)
+#define DRM_EDID_DSC_ALL_BPP			BIT(3)
+#define DRM_EDID_DSC_NATIVE_420			BIT(6)
+#define DRM_EDID_DSC_1P2			BIT(7)
+#define DRM_EDID_DSC_MAX_FRL_RATE_MASK		0xf0
+#define DRM_EDID_DSC_MAX_SLICES			0xf
+#define DRM_EDID_DSC_TOTAL_CHUNK_KBYTES		0x3f
+
 struct edid1_info {
 	unsigned char header[8];
 	unsigned char manufacturer_name[2];
@@ -590,6 +620,47 @@ struct drm_scdc {
 };
 
 /**
+ * struct drm_hdmi_dsc_cap - DSC capabilities of HDMI sink
+ *
+ * Describes the DSC support provided by HDMI 2.1 sink.
+ * The information is fetched fom additional HFVSDB blocks defined
+ * for HDMI 2.1.
+ */
+struct drm_hdmi_dsc_cap {
+	/** @v_1p2: flag for dsc1.2 version support by sink */
+	bool v_1p2;
+
+	/** @native_420: Does sink support DSC with 4:2:0 compression */
+	bool native_420;
+
+	/**
+	 * @all_bpp: Does sink support all bpp with 4:4:4: or 4:2:2
+	 * compressed formats
+	 */
+	bool all_bpp;
+
+	/**
+	 * @bpc_supported: compressed bpc supported by sink : 10, 12 or 16 bpc
+	 */
+	u8 bpc_supported;
+
+	/** @max_slices: maximum number of Horizontal slices supported by */
+	u8 max_slices;
+
+	/** @clk_per_slice : max pixel clock in MHz supported per slice */
+	int clk_per_slice;
+
+	/** @max_lanes : dsc max lanes supported for Fixed rate Link training */
+	u8 max_lanes;
+
+	/** @max_frl_rate_per_lane : maximum frl rate with DSC per lane */
+	u8 max_frl_rate_per_lane;
+
+	/** @total_chunk_kbytes: max size of chunks in KBs supported per line*/
+	u8 total_chunk_kbytes;
+};
+
+/**
  * struct drm_hdmi_info - runtime information about the connected HDMI sink
  *
  * Describes if a given display supports advanced HDMI 2.0 features.
@@ -619,6 +690,15 @@ struct drm_hdmi_info {
 
 	/** @y420_dc_modes: bitmap of deep color support index */
 	u8 y420_dc_modes;
+
+	/** @max_frl_rate_per_lane: support fixed rate link */
+	u8 max_frl_rate_per_lane;
+
+	/** @max_lanes: supported by sink */
+	u8 max_lanes;
+
+	/** @dsc_cap: DSC capabilities of the sink */
+	struct drm_hdmi_dsc_cap dsc_cap;
 };
 
 enum subpixel_order {
@@ -737,6 +817,13 @@ enum  base_output_depth {
 	DEPTH_30BIT = 10,
 };
 
+struct base_bcsh_info {
+	unsigned short brightness;
+	unsigned short contrast;
+	unsigned short saturation;
+	unsigned short hue;
+};
+
 struct base_overscan {
 	unsigned int maxvalue;
 	unsigned short leftscale;
@@ -772,6 +859,61 @@ struct base_screen_info {
 struct base_disp_info {
 	struct base_screen_info screen_list[5];
 	struct base_overscan scan;		/* 12 bytes */
+};
+
+struct base2_cubic_lut_data {
+	u16 size;
+	u16 lred[4913];
+	u16 lgreen[4913];
+	u16 lblue[4913];
+};
+
+struct base2_screen_info {
+	u32 type;
+	u32 id;
+	struct base_drm_display_mode resolution;
+	enum base_output_format  format;
+	enum base_output_depth depthc;
+	u32 feature;
+};
+
+struct base2_gamma_lut_data {
+	u16 size;
+	u16 lred[1024];
+	u16 lgreen[1024];
+	u16 lblue[1024];
+};
+
+struct framebuffer_info {
+	u32 framebuffer_width;
+	u32 framebuffer_height;
+	u32 fps;
+};
+
+struct base2_disp_info {
+	char disp_head_flag[6];
+	struct base2_screen_info screen_info[4];
+	struct base_bcsh_info bcsh_info;
+	struct base_overscan overscan_info;
+	struct base2_gamma_lut_data gamma_lut_data;
+	struct base2_cubic_lut_data cubic_lut_data;
+	struct framebuffer_info framebuffer_info;
+	u32 reserved[244];
+	u32 crc;
+};
+
+struct base2_disp_header {
+	u32 connector_type;
+	u32 connector_id;
+	u32 offset;
+};
+
+struct base2_info {
+	char head_flag[4];
+	u16 major_version;
+	u16 minor_version;
+	struct base2_disp_header disp_header[8];
+	struct base2_disp_info disp_info[8];
 };
 
 /**
@@ -825,6 +967,8 @@ struct hdmi_edid_data {
 struct ddc_adapter {
 	int (*ddc_xfer)(struct ddc_adapter *adap, struct i2c_msg *msgs,
 			int num);
+	struct udevice *i2c_bus;
+	struct dm_i2c_ops *ops;
 };
 
 /**
@@ -847,9 +991,16 @@ bool drm_detect_hdmi_monitor(struct edid *edid);
 bool drm_detect_monitor_audio(struct edid *edid);
 int do_cea_modes(struct hdmi_edid_data *data, const u8 *db, u8 len);
 int drm_do_get_edid(struct ddc_adapter *adap, u8 *edid);
+enum hdmi_quantization_range
+drm_default_rgb_quant_range(struct drm_display_mode *mode);
 u8 drm_scdc_readb(struct ddc_adapter *adap, u8 offset,
 		  u8 *value);
 u8 drm_scdc_writeb(struct ddc_adapter *adap, u8 offset,
 		   u8 value);
+void drm_mode_sort(struct hdmi_edid_data *edid_data);
+int drm_mode_prune_invalid(struct hdmi_edid_data *edid_data);
+void drm_rk_filter_whitelist(struct hdmi_edid_data *edid_data);
+void drm_rk_select_mode(struct hdmi_edid_data *edid_data,
+			struct base_screen_info *screen_info);
 
 #endif /* __EDID_H_ */

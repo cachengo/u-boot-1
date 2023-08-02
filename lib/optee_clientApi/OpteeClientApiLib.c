@@ -7,8 +7,49 @@
 #include <common.h>
 #include <optee_include/OpteeClientApiLib.h>
 #include <optee_include/OpteeClientMem.h>
+#include <optee_include/OpteeClientRPC.h>
 #include <optee_include/OpteeClientSMC.h>
 #include <optee_include/OpteeClientRkFs.h>
+#include <optee_include/teesmc.h>
+#include <optee_include/teesmc_optee.h>
+#include <optee_include/teesmc_v2.h>
+
+#define OPTEE_MSG_REVISION_MAJOR        2
+#define OPTEE_MSG_REVISION_MINOR        0
+
+static bool optee_is_init;
+
+static bool optee_api_revision_is_compatible(void)
+{
+	ARM_SMC_ARGS ArmSmcArgs = {0};
+
+	ArmSmcArgs.Arg0 = OPTEE_SMC_CALLS_REVISION;
+
+	tee_smc_call(&ArmSmcArgs);
+
+	if (ArmSmcArgs.Arg0 == OPTEE_MSG_REVISION_MAJOR &&
+	    ArmSmcArgs.Arg1 >= OPTEE_MSG_REVISION_MINOR) {
+		printf("optee api revision: %d.%d\n",
+		       ArmSmcArgs.Arg0, ArmSmcArgs.Arg1);
+		return true;
+	} else {
+		printf("optee check api revision fail: %d.%d\n",
+		       ArmSmcArgs.Arg0, ArmSmcArgs.Arg1);
+		return false;
+	}
+}
+
+void optee_get_shm_config(phys_addr_t *base, phys_size_t *size)
+{
+	ARM_SMC_ARGS ArmSmcArgs = {0};
+
+	ArmSmcArgs.Arg0 = OPTEE_SMC_GET_SHM_CONFIG_V2;
+
+	tee_smc_call(&ArmSmcArgs);
+
+	*base = ArmSmcArgs.Arg1;
+	*size = ArmSmcArgs.Arg2;
+}
 
 /*
  * Initlialize the library
@@ -17,11 +58,27 @@ TEEC_Result OpteeClientApiLibInitialize(void)
 {
 	TEEC_Result status = TEEC_SUCCESS;
 
-	OpteeClientMemInit();
+	if (optee_is_init)
+		return TEEC_SUCCESS;
 
-	OpteeClientRkFsInit();
+	/* check api revision compatibility */
+	if (!optee_api_revision_is_compatible())
+		panic("optee api revision is too low");
 
-	return status;
+	status = OpteeClientMemInit();
+	if (status != TEEC_SUCCESS) {
+		printf("TEEC: OpteeClientMemInit fail!\n");
+		return status;
+	}
+	status = OpteeClientRkFsInit();
+	if (status != TEEC_SUCCESS) {
+		printf("TEEC: OpteeClientRkFsInit fail!\n");
+		return status;
+	}
+
+	optee_is_init = true;
+
+	return TEEC_SUCCESS;
 }
 
 /*
@@ -54,7 +111,7 @@ TEEC_Result TEEC_InitializeContext(const char *name,
 	memset(context, 0, sizeof(*context));
 
 exit:
-	debug("TEEC_InitializeContext Exit : teecresult=0x%X\n\n", teecresult);
+	debug("TEEC_InitializeContext Exit : teecresult=0x%X\n", teecresult);
 	return teecresult;
 }
 
@@ -236,7 +293,7 @@ Exit:
 	if (error_origin != NULL)
 		*error_origin = TeecErrorOrigin;
 
-	debug("TEEC_OpenSession Exit : TeecResult=0x%X, TeecErrorOrigin=0x%X\n\n",
+	debug("TEEC_OpenSession Exit : TeecResult=0x%X, TeecErrorOrigin=0x%X\n",
 				TeecResult, TeecErrorOrigin);
 	return TeecResult;
 }
@@ -258,7 +315,7 @@ void TEEC_CloseSession(TEEC_Session *session)
 	TeecResult = TEEC_SMC_CloseSession(session, &TeecErrorOrigin);
 
 Exit:
-	debug("TEEC_CloseSession Exit : TeecResult=0x%X, TeecErrorOrigin=0x%X\n\n",
+	debug("TEEC_CloseSession Exit : TeecResult=0x%X, TeecErrorOrigin=0x%X\n",
 			TeecResult, TeecErrorOrigin);
 	return;
 }
@@ -297,7 +354,7 @@ Exit:
 	if (error_origin != NULL)
 		*error_origin = TeecErrorOrigin;
 
-	debug("TEEC_InvokeCommand Exit : TeecResult=0x%X, TeecErrorOrigin=0x%X\n\n",
+	debug("TEEC_InvokeCommand Exit : TeecResult=0x%X, TeecErrorOrigin=0x%X\n",
 				TeecResult, TeecErrorOrigin);
 
 	return TeecResult;

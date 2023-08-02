@@ -13,6 +13,7 @@
 #include <config.h>
 #include <common.h>
 #include <console.h>
+#include <android_bootloader.h>
 #include <errno.h>
 #include <fastboot.h>
 #include <malloc.h>
@@ -39,6 +40,12 @@
 #endif
 #include <boot_rkimg.h>
 #include <optee_include/tee_client_api.h>
+#ifdef CONFIG_FASTBOOT_OEM_UNLOCK
+#include <keymaster.h>
+#endif
+#ifdef CONFIG_ANDROID_AB
+#include <android_ab.h>
+#endif
 
 #define FASTBOOT_VERSION		"0.4"
 
@@ -114,6 +121,34 @@ static struct usb_endpoint_descriptor hs_ep_out = {
 	.wMaxPacketSize		= cpu_to_le16(512),
 };
 
+static struct usb_endpoint_descriptor ss_ep_in = {
+	.bLength		= USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType	= USB_DT_ENDPOINT,
+	.bEndpointAddress	= USB_DIR_IN,
+	.bmAttributes		= USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize		= cpu_to_le16(1024),
+};
+
+static struct usb_ss_ep_comp_descriptor ss_ep_in_comp_desc = {
+	.bLength		= sizeof(ss_ep_in_comp_desc),
+	.bDescriptorType	= USB_DT_SS_ENDPOINT_COMP,
+	/* .bMaxBurst		= DYNAMIC, */
+};
+
+static struct usb_endpoint_descriptor ss_ep_out = {
+	.bLength		= USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType	= USB_DT_ENDPOINT,
+	.bEndpointAddress	= USB_DIR_OUT,
+	.bmAttributes		= USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize		= cpu_to_le16(1024),
+};
+
+static struct usb_ss_ep_comp_descriptor ss_ep_out_comp_desc = {
+	.bLength		= sizeof(ss_ep_out_comp_desc),
+	.bDescriptorType	= USB_DT_SS_ENDPOINT_COMP,
+	/* .bMaxBurst		= DYNAMIC, */
+};
+
 static struct usb_interface_descriptor interface_desc = {
 	.bLength		= USB_DT_INTERFACE_SIZE,
 	.bDescriptorType	= USB_DT_INTERFACE,
@@ -138,13 +173,44 @@ static struct usb_descriptor_header *fb_hs_function[] = {
 	NULL,
 };
 
+static struct usb_descriptor_header *fb_ss_function[] = {
+	(struct usb_descriptor_header *)&interface_desc,
+	(struct usb_descriptor_header *)&ss_ep_in,
+	(struct usb_descriptor_header *)&ss_ep_in_comp_desc,
+	(struct usb_descriptor_header *)&ss_ep_out,
+	(struct usb_descriptor_header *)&ss_ep_out_comp_desc,
+	NULL,
+};
+
 static struct usb_endpoint_descriptor *
 fb_ep_desc(struct usb_gadget *g, struct usb_endpoint_descriptor *fs,
-	    struct usb_endpoint_descriptor *hs)
+	   struct usb_endpoint_descriptor *hs,
+	   struct usb_endpoint_descriptor *ss,
+	   struct usb_ss_ep_comp_descriptor *comp_desc,
+	   struct usb_ep *ep)
 {
-	if (gadget_is_dualspeed(g) && g->speed == USB_SPEED_HIGH)
-		return hs;
-	return fs;
+	struct usb_endpoint_descriptor *speed_desc = NULL;
+
+	/* select desired speed */
+	switch (g->speed) {
+	case USB_SPEED_SUPER:
+		if (gadget_is_superspeed(g)) {
+			speed_desc = ss;
+			ep->comp_desc = comp_desc;
+			break;
+		}
+		/* else: Fall trough */
+	case USB_SPEED_HIGH:
+		if (gadget_is_dualspeed(g)) {
+			speed_desc = hs;
+			break;
+		}
+		/* else: fall through */
+	default:
+		speed_desc = fs;
+	}
+
+	return speed_desc;
 }
 
 /*
@@ -301,6 +367,14 @@ static int fastboot_bind(struct usb_configuration *c, struct usb_function *f)
 		f->hs_descriptors = fb_hs_function;
 	}
 
+	if (gadget_is_superspeed(gadget)) {
+		/* Assume endpoint addresses are the same as full speed */
+		ss_ep_in.bEndpointAddress = fs_ep_in.bEndpointAddress;
+		ss_ep_out.bEndpointAddress = fs_ep_out.bEndpointAddress;
+		/* copy SS descriptors */
+		f->ss_descriptors = fb_ss_function;
+	}
+
 	s = env_get("serial#");
 	if (s)
 		g_dnl_set_serialnumber((char *)s);
@@ -363,7 +437,8 @@ static int fastboot_set_alt(struct usb_function *f,
 	debug("%s: func: %s intf: %d alt: %d\n",
 	      __func__, f->name, interface, alt);
 
-	d = fb_ep_desc(gadget, &fs_ep_out, &hs_ep_out);
+	d = fb_ep_desc(gadget, &fs_ep_out, &hs_ep_out, &ss_ep_out,
+		       &ss_ep_out_comp_desc, f_fb->out_ep);
 	ret = usb_ep_enable(f_fb->out_ep, d);
 	if (ret) {
 		puts("failed to enable out ep\n");
@@ -378,7 +453,8 @@ static int fastboot_set_alt(struct usb_function *f,
 	}
 	f_fb->out_req->complete = rx_handler_command;
 
-	d = fb_ep_desc(gadget, &fs_ep_in, &hs_ep_in);
+	d = fb_ep_desc(gadget, &fs_ep_in, &hs_ep_in, &ss_ep_in,
+		       &ss_ep_in_comp_desc, f_fb->in_ep);
 	ret = usb_ep_enable(f_fb->in_ep, d);
 	if (ret) {
 		puts("failed to enable in ep\n");
@@ -476,12 +552,28 @@ int __weak fb_set_reboot_flag(void)
 static void cb_reboot(struct usb_ep *ep, struct usb_request *req)
 {
 	char *cmd = req->buf;
+
 	if (!strcmp_l1("reboot-bootloader", cmd)) {
 		if (fb_set_reboot_flag()) {
 			fastboot_tx_write_str("FAILCannot set reboot flag");
 			return;
 		}
 	}
+#ifdef CONFIG_ANDROID_BOOTLOADER
+	if (!strcmp_l1("reboot-fastboot", cmd)) {
+		if (android_bcb_write("boot-fastboot")) {
+			fastboot_tx_write_str("FAILCannot set boot-fastboot");
+			return;
+		}
+	}
+
+	if (!strcmp_l1("reboot-recovery", cmd)) {
+		if (android_bcb_write("boot-recovery")) {
+			fastboot_tx_write_str("FAILCannot set boot-recovery");
+			return;
+		}
+	}
+#endif
 	fastboot_func->in_req->complete = compl_do_reset;
 	fastboot_tx_write_str("OKAY");
 }
@@ -718,6 +810,10 @@ static int fb_read_var(char *cmd, char *response,
 		fb_add_string(response, chars_left, "no", NULL);
 		break;
 	}
+	case FB_IS_USERSPACE: {
+		fb_add_string(response, chars_left, "no", NULL);
+		break;
+	}
 #ifdef CONFIG_RK_AVB_LIBAVB_USER
 	case FB_HAS_COUNT: {
 		char slot_count[2];
@@ -907,6 +1003,37 @@ static int fb_read_var(char *cmd, char *response,
 		} while (strlen(cmd));
 		break;
 	}
+	case FB_SNAPSHOT_STATUS: {
+#ifdef CONFIG_ANDROID_AB
+		struct misc_virtual_ab_message state;
+
+		memset(&state, 0x0, sizeof(state));
+		if (read_misc_virtual_ab_message(&state) != 0) {
+			printf("FB_SNAPSHOT_STATUS read_misc_virtual_ab_message failed!\n");
+			fb_add_string(response, chars_left, "get error", NULL);
+			ret = -1;
+		}
+
+		if (state.magic != MISC_VIRTUAL_AB_MAGIC_HEADER) {
+			printf("FB_SNAPSHOT_STATUS not virtual A/B metadata!\n");
+			fb_add_string(response, chars_left, "get error", NULL);
+			ret = -1;
+		}
+
+		if (state.merge_status == ENUM_MERGE_STATUS_MERGING) {
+			fb_add_string(response, chars_left, "merging", NULL);
+		} else if (state.merge_status == ENUM_MERGE_STATUS_SNAPSHOTTED) {
+			fb_add_string(response, chars_left, "snapshotted", NULL);
+		} else {
+			fb_add_string(response, chars_left, "none", NULL);
+		}
+#else
+		fb_add_string(response, chars_left, "get error", NULL);
+		ret = -1;
+#endif
+		break;
+	}
+
 #endif
 #ifdef CONFIG_OPTEE_CLIENT
 	case FB_AT_DH: {
@@ -990,6 +1117,7 @@ static const struct {
 	{ NAME_NO_ARGS("battery-voltage"), FB_BATT_VOLTAGE},
 	{ NAME_NO_ARGS("variant"), FB_VARIANT},
 	{ NAME_NO_ARGS("battery-soc-ok"), FB_BATT_SOC_OK},
+	{ NAME_NO_ARGS("is-userspace"), FB_IS_USERSPACE},
 #ifdef CONFIG_RK_AVB_LIBAVB_USER
 	/* Slots related */
 	{ NAME_NO_ARGS("slot-count"), FB_HAS_COUNT},
@@ -1000,6 +1128,7 @@ static const struct {
 	{ NAME_ARGS("slot-unbootable", ':'), FB_SLOT_UNBOOTABLE},
 	{ NAME_ARGS("slot-retry-count", ':'), FB_SLOT_RETRY_COUNT},
 	{ NAME_NO_ARGS("at-vboot-state"), FB_AT_VBST},
+	{ NAME_NO_ARGS("snapshot-update-status"), FB_SNAPSHOT_STATUS},
 #endif
 	/*
 	 * OEM specific :
@@ -1303,6 +1432,76 @@ static void fb_getvar_all(void)
 	}
 }
 
+#ifdef CONFIG_ANDROID_AB
+static int get_current_slot(void)
+{
+#ifdef CONFIG_RK_AVB_LIBAVB_USER
+	char cmd[8] = {0};
+	unsigned int slot_number = -1;
+
+	memset(cmd, 0x0, sizeof(cmd));
+	rk_avb_get_current_slot(cmd);
+	if (strncmp("_a", cmd, 2) == 0) {
+		slot_number = 0;
+	} else if (strncmp("_b", cmd, 2) == 0) {
+		slot_number = 1;
+	} else {
+		pr_err("%s: FAILunkown slot name\n", __func__);
+		return -1;
+	}
+
+	return slot_number;
+#else
+	pr_err("%s: FAILnot implemented\n", __func__);
+	return -1;
+#endif
+}
+
+#ifdef CONFIG_FASTBOOT_FLASH
+static int should_prevent_userdata_wipe(void)
+{
+	struct misc_virtual_ab_message state;
+
+	memset(&state, 0x0, sizeof(state));
+	if (read_misc_virtual_ab_message(&state) != 0) {
+		pr_err("%s: read_misc_virtual_ab_message failed!\n", __func__);
+		return 0;
+	}
+
+	if (state.magic != MISC_VIRTUAL_AB_MAGIC_HEADER) {
+		pr_err("%s: NOT virtual A/B metadata!\n", __func__);
+		return 0;
+	}
+
+	if (state.merge_status == (uint8_t)ENUM_MERGE_STATUS_MERGING ||
+		(state.merge_status == (uint8_t)ENUM_MERGE_STATUS_SNAPSHOTTED &&
+		state.source_slot != get_current_slot())) {
+		return 1;
+	}
+
+	return 0;
+}
+#endif
+
+static int get_virtual_ab_merge_status(void)
+{
+	struct misc_virtual_ab_message state;
+
+	memset(&state, 0x0, sizeof(state));
+	if (read_misc_virtual_ab_message(&state) != 0) {
+		pr_err("%s: read_misc_virtual_ab_message failed!\n", __func__);
+		return -1;
+	}
+
+	if (state.magic != MISC_VIRTUAL_AB_MAGIC_HEADER) {
+		pr_err("%s: NOT virtual A/B metadata!\n", __func__);
+		return -1;
+	}
+
+	return state.merge_status;
+}
+#endif
+
 static void cb_getvar(struct usb_ep *ep, struct usb_request *req)
 {
 	char *cmd = req->buf;
@@ -1555,6 +1754,13 @@ static void cb_set_active(struct usb_ep *ep, struct usb_request *req)
 		fastboot_tx_write_str("FAILmissing slot name");
 		return;
 	}
+#ifdef CONFIG_ANDROID_AB
+	if (get_virtual_ab_merge_status() == ENUM_MERGE_STATUS_MERGING) {
+		pr_err("virtual A/B is merging, abort the operation");
+		fastboot_tx_write_str("FAILvirtual A/B is merging, abort");
+		return;
+	}
+#endif
 #ifdef CONFIG_RK_AVB_LIBAVB_USER
 	unsigned int slot_number;
 	if (strncmp("a", cmd, 1) == 0) {
@@ -1608,7 +1814,15 @@ static void cb_flash(struct usb_ep *ep, struct usb_request *req)
 		fastboot_tx_write_str("FAILmissing partition name");
 		return;
 	}
-
+#ifdef CONFIG_ANDROID_AB
+	if ((strcmp(cmd, PART_USERDATA) == 0) || (strcmp(cmd, PART_METADATA) == 0)) {
+		if (should_prevent_userdata_wipe()) {
+			pr_err("FAILThe virtual A/B merging, can not flash userdata or metadata!\n");
+			fastboot_tx_write_str("FAILvirtual A/B merging,abort flash!");
+			return;
+		}
+	}
+#endif
 	fastboot_fail("no flash device defined", response);
 #ifdef CONFIG_FASTBOOT_FLASH_MMC_DEV
 	fb_mmc_flash_write(cmd, (void *)CONFIG_FASTBOOT_BUF_ADDR,
@@ -1670,18 +1884,19 @@ static void cb_flashing(struct usb_ep *ep, struct usb_request *req)
 static void cb_oem_perm_attr(void)
 {
 #ifdef CONFIG_RK_AVB_LIBAVB_USER
+#ifndef CONFIG_ROCKCHIP_PRELOADER_PUB_KEY
 	sha256_context ctx;
 	uint8_t digest[SHA256_SUM_LEN] = {0};
 	uint8_t digest_temp[SHA256_SUM_LEN] = {0};
 	uint8_t perm_attr_temp[PERM_ATTR_TOTAL_SIZE] = {0};
 	uint8_t flag = 0;
-
+#endif
 	if (PERM_ATTR_TOTAL_SIZE != download_bytes) {
 		printf("Permanent attribute size is not equal!\n");
 		fastboot_tx_write_str("FAILincorrect perm attribute size");
 		return;
 	}
-
+#ifndef CONFIG_ROCKCHIP_PRELOADER_PUB_KEY
 	if (rk_avb_read_perm_attr_flag(&flag)) {
 		printf("rk_avb_read_perm_attr_flag error!\n");
 		fastboot_tx_write_str("FAILperm attr read failed");
@@ -1721,7 +1936,7 @@ static void cb_oem_perm_attr(void)
 			return;
 		}
 	}
-
+#endif
 	if (rk_avb_write_permanent_attributes((uint8_t *)
 					      CONFIG_FASTBOOT_BUF_ADDR,
 					      download_bytes)) {
@@ -1732,7 +1947,7 @@ static void cb_oem_perm_attr(void)
 		fastboot_tx_write_str("FAILperm attr write failed");
 		return;
 	}
-
+#ifndef CONFIG_ROCKCHIP_PRELOADER_PUB_KEY
 	memset(digest, 0, SHA256_SUM_LEN);
 	sha256_starts(&ctx);
 	sha256_update(&ctx, (const uint8_t *)CONFIG_FASTBOOT_BUF_ADDR,
@@ -1757,9 +1972,30 @@ static void cb_oem_perm_attr(void)
 			return;
 		}
 	}
-
+#endif
 	if (rk_avb_write_perm_attr_flag(PERM_ATTR_SUCCESS_FLAG)) {
 		fastboot_tx_write_str("FAILperm attr flag write failure");
+		return;
+	}
+
+	fastboot_tx_write_str("OKAY");
+#else
+	fastboot_tx_write_str("FAILnot implemented");
+#endif
+}
+
+static void cb_oem_perm_attr_rsa_cer(void)
+{
+#ifdef CONFIG_RK_AVB_LIBAVB_USER
+	if (download_bytes != 256) {
+		printf("Permanent attribute rsahash size is not equal!\n");
+		fastboot_tx_write_str("FAILperm attribute rsahash size error");
+		return;
+	}
+
+	if (rk_avb_set_perm_attr_cer((uint8_t *)CONFIG_FASTBOOT_BUF_ADDR,
+				     download_bytes)) {
+		fastboot_tx_write_str("FAILSet perm attr cer fail!");
 		return;
 	}
 
@@ -1778,10 +2014,22 @@ static void cb_oem(struct usb_ep *ep, struct usb_request *req)
 		char cmdbuf[32];
 		sprintf(cmdbuf, "gpt write mmc %x $partitions",
 			CONFIG_FASTBOOT_FLASH_MMC_DEV);
-		if (run_command(cmdbuf, 0))
-			fastboot_tx_write_str("FAILmmc write failure");
-		else
-			fastboot_tx_write_str("OKAY");
+#ifdef CONFIG_ANDROID_AB
+		if (should_prevent_userdata_wipe()) {
+			printf("FAILThe virtual A/B merging, can not format!\n");
+			fastboot_tx_write_str("FAILvirtual A/B merging,abort format!");
+		} else {
+			if (run_command(cmdbuf, 0))
+				fastboot_tx_write_str("FAILmmc write failure");
+			else
+				fastboot_tx_write_str("OKAY");
+		}
+#else
+	if (run_command(cmdbuf, 0))
+		fastboot_tx_write_str("FAILmmc write failure");
+	else
+		fastboot_tx_write_str("OKAY");
+#endif
 	} else
 #endif
 	if (strncmp("unlock", cmd + 4, 8) == 0) {
@@ -1965,7 +2213,7 @@ static void cb_oem(struct usb_ep *ep, struct usb_request *req)
 	} else if (strncmp("at-unlock-vboot", cmd + 4, 15) == 0) {
 #ifdef CONFIG_RK_AVB_LIBAVB_USER
 		uint8_t lock_state;
-		bool out_is_trusted = true;
+		char out_is_trusted = true;
 
 		if (rk_avb_read_lock_state(&lock_state))
 			fastboot_tx_write_str("FAILlock sate read failure");
@@ -1993,19 +2241,10 @@ static void cb_oem(struct usb_ep *ep, struct usb_request *req)
 #else
 		fastboot_tx_write_str("FAILnot implemented");
 #endif
-	} else if (strncmp("at-disable-unlock-vboot", cmd + 4, 23) == 0) {
-#ifdef CONFIG_RK_AVB_LIBAVB_USER
-		uint8_t lock_state;
-		lock_state = 2;
-		if (rk_avb_write_lock_state(lock_state))
-			fastboot_tx_write_str("FAILwrite lock state failed");
-		else
-			fastboot_tx_write_str("OKAY");
-#else
-		fastboot_tx_write_str("FAILnot implemented");
-#endif
 	} else if (strncmp("fuse at-perm-attr", cmd + 4, 16) == 0) {
 		cb_oem_perm_attr();
+	} else if (strncmp("fuse at-rsa-perm-attr", cmd + 4, 25) == 0) {
+		cb_oem_perm_attr_rsa_cer();
 	} else if (strncmp("fuse at-bootloader-vboot-key", cmd + 4, 27) == 0) {
 #ifdef CONFIG_RK_AVB_LIBAVB_USER
 		sha256_context ctx;
@@ -2031,6 +2270,16 @@ static void cb_oem(struct usb_ep *ep, struct usb_request *req)
 #else
 		fastboot_tx_write_str("FAILnot implemented");
 #endif
+	} else if (strncmp("init-ab-metadata", cmd + 4, 16) == 0) {
+#ifdef CONFIG_RK_AVB_LIBAVB_USER
+		if (rk_avb_init_ab_metadata()) {
+			fastboot_tx_write_str("FAILinit ab data fail!");
+			return;
+		}
+		fastboot_tx_write_str("OKAY");
+#else
+		fastboot_tx_write_str("FAILnot implemented");
+#endif
 	} else {
 		fastboot_tx_write_str("FAILunknown oem command");
 	}
@@ -2040,7 +2289,7 @@ static void cb_oem(struct usb_ep *ep, struct usb_request *req)
 static void cb_erase(struct usb_ep *ep, struct usb_request *req)
 {
 	char *cmd = req->buf;
-	char response[FASTBOOT_RESPONSE_LEN];
+	char response[FASTBOOT_RESPONSE_LEN] = {0};
 
 	strsep(&cmd, ":");
 	if (!cmd) {
@@ -2048,7 +2297,15 @@ static void cb_erase(struct usb_ep *ep, struct usb_request *req)
 		fastboot_tx_write_str("FAILmissing partition name");
 		return;
 	}
-
+#ifdef CONFIG_ANDROID_AB
+	if ((strcmp(cmd, PART_USERDATA) == 0) || (strcmp(cmd, PART_METADATA) == 0)) {
+		if (should_prevent_userdata_wipe()) {
+			pr_err("virtual A/B merging, can not erase userdata or metadata!\n");
+			fastboot_tx_write_str("FAILvirtual A/B merging,abort erase!");
+			return;
+		}
+	}
+#endif
 	fastboot_fail("no flash device defined", response);
 #ifdef CONFIG_FASTBOOT_FLASH_MMC_DEV
 	fb_mmc_erase(cmd, response);

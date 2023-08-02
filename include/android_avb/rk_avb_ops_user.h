@@ -7,6 +7,9 @@
 #ifndef RK_AVB_OPS_USER_H_
 #define RK_AVB_OPS_USER_H_
 
+#include <android_avb/avb_ops_user.h>
+#include <android_avb/libavb_ab.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,6 +33,13 @@ extern "C" {
 #define RPMB_BASE_ADDR		(64*1024/256)
 #define UBOOT_RB_INDEX_OFFSET 24
 #define TRUST_RB_INDEX_OFFSET 28
+#define ROCHCHIP_RSA_PARAMETER_SIZE 64
+
+struct rk_pub_key {
+	u_int32_t rsa_n[ROCHCHIP_RSA_PARAMETER_SIZE];
+	u_int32_t rsa_e[ROCHCHIP_RSA_PARAMETER_SIZE];
+	u_int32_t rsa_c[ROCHCHIP_RSA_PARAMETER_SIZE];
+};
 
 /**
  * Provided to fastboot to read how many slot in this system.
@@ -68,6 +78,17 @@ int rk_avb_set_slot_active(unsigned int *slot_number);
  * @return 0 if the command succeeded, -1 if it failed
  */
 int rk_avb_get_current_slot(char *select_slot);
+
+/**
+ * Append current slot to given partition name
+ *
+ * @param part_name	partition name
+ * @param slot		given slot suffix, auto append current slot if NULL
+ * @param new_name	partition name with slot suffix appended
+ *
+ * @return 0 if the command succeeded, -1 if it failed
+ */
+int rk_avb_append_part_slot(const char *part_name, char *new_name);
 
 /**
  * The android things defines permanent attributes to
@@ -266,6 +287,59 @@ int rk_auth_unlock(void *buffer, char *out_is_trusted);
  * @return 0 if generate unlock challenge OK, -1 if not
  */
 int rk_generate_unlock_challenge(void *buffer, uint32_t *challenge_len);
+
+/**
+ * Get last boot slot
+ *
+ * @return 0 is slot A; 1 is slot B; -1 is error
+ */
+int rk_get_lastboot(void);
+
+/**
+ * Get permanent attribute certificate
+ *
+ * @param cer: certificate data
+ *
+ * @param size: certificate size
+ */
+int rk_avb_get_perm_attr_cer(uint8_t *cer, uint32_t size);
+
+/**
+ * Set permanent attribute certificate
+ *
+ * @param cer: certificate data
+ *
+ * @param size: certificate size
+ */
+int rk_avb_set_perm_attr_cer(uint8_t *cer, uint32_t size);
+
+/**
+ * Get public key
+ *
+ * @param pub_key: public key data
+ */
+int rk_avb_get_pub_key(struct rk_pub_key *pub_key);
+
+/**
+ * init ab metadata
+ */
+int rk_avb_init_ab_metadata(void);
+
+/**
+ * rockchip avb commands
+ */
+int rk_avb_write_perm_attr(uint16_t id, void *pbuf, uint16_t size);
+int rk_avb_read_perm_attr(uint16_t id, void *pbuf, uint16_t size);
+
+/**
+ * Do the device have boot slot
+ */
+bool rk_avb_ab_have_bootable_slot(void);
+
+/**
+ * update rollback index
+ */
+int rk_avb_update_stored_rollback_indexes_for_slot(AvbOps* ops, AvbSlotVerifyData* slot_data);
 
 #ifdef __cplusplus
 }

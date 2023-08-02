@@ -41,6 +41,8 @@ int env_get_yesno(const char *var)
 		1 : 0;
 }
 
+__weak void board_env_fixup(void) {}
+
 /*
  * Look up the variable from the default environment
  */
@@ -88,6 +90,8 @@ void set_default_env(const char *s)
 
 	gd->flags |= GD_FLG_ENV_READY;
 	gd->flags |= GD_FLG_ENV_DEFAULT;
+
+	board_env_fixup();
 }
 
 
@@ -101,6 +105,22 @@ int set_default_vars(int nvars, char * const vars[])
 	return himport_r(&env_htab, (const char *)default_environment,
 				sizeof(default_environment), '\0',
 				H_NOCLEAR | H_INTERACTIVE, 0, nvars, vars);
+}
+
+int set_board_env(const char *vars, int size, int flags, bool ready)
+{
+	if (himport_r(&env_htab, (char *)vars, size, '\0',
+		      flags, 0, 0, NULL) == 0) {
+		pr_err("Environment import failed\n");
+		return -1;
+	}
+
+	if (ready) {
+		gd->flags |= GD_FLG_ENV_READY;
+		gd->flags |= GD_FLG_ENV_DEFAULT;
+	}
+
+	return 0;
 }
 
 #ifdef CONFIG_ENV_AES

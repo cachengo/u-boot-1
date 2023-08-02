@@ -31,6 +31,14 @@ static inline int us_to_vertical_line(struct drm_display_mode *mode, int us)
 	return us * mode->clock / mode->htotal / 1000;
 }
 
+static inline void set_vop_mcu_rs(struct vop *vop, int v)
+{
+	if (dm_gpio_is_valid(&vop->mcu_rs_gpio))
+		dm_gpio_set_value(&vop->mcu_rs_gpio, v);
+	else
+		VOP_CTRL_SET(vop, mcu_rs, v);
+}
+
 static int to_vop_csc_mode(int csc_mode)
 {
 	switch (csc_mode) {
@@ -55,6 +63,14 @@ static bool is_yuv_output(uint32_t bus_format)
 	case MEDIA_BUS_FMT_YUV10_1X30:
 	case MEDIA_BUS_FMT_UYYVYY8_0_5X24:
 	case MEDIA_BUS_FMT_UYYVYY10_0_5X30:
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+	case MEDIA_BUS_FMT_YVYU8_2X8:
+	case MEDIA_BUS_FMT_UYVY8_2X8:
+	case MEDIA_BUS_FMT_VYUY8_2X8:
+	case MEDIA_BUS_FMT_YUYV8_1X16:
+	case MEDIA_BUS_FMT_YVYU8_1X16:
+	case MEDIA_BUS_FMT_UYVY8_1X16:
+	case MEDIA_BUS_FMT_VYUY8_1X16:
 		return true;
 	default:
 		return false;
@@ -193,6 +209,15 @@ static void vop_mcu_mode(struct display_state *state, struct vop *vop)
 	VOP_CTRL_SET(vop, mcu_rw_pend, crtc_state->mcu_timing.mcu_rw_pend);
 }
 
+static int rockchip_vop_preinit(struct display_state *state)
+{
+	const struct vop_data *vop_data = state->crtc_state.crtc->data;
+
+	state->crtc_state.max_output = vop_data->max_output;
+
+	return 0;
+}
+
 static int rockchip_vop_init(struct display_state *state)
 {
 	struct crtc_state *crtc_state = &state->crtc_state;
@@ -239,7 +264,6 @@ static int rockchip_vop_init(struct display_state *state)
 	vop->csc_table = vop_data->csc_table;
 	vop->win_csc = vop_data->win_csc;
 	vop->version = vop_data->version;
-	vop->max_output = vop_data->max_output;
 
 	/* Process 'assigned-{clocks/clock-parents/clock-rates}' properties */
 	ret = clk_set_defaults(crtc_state->dev);
@@ -257,6 +281,11 @@ static int rockchip_vop_init(struct display_state *state)
 	memcpy(vop->regsbak, vop->regs, vop_data->reg_len);
 
 	rockchip_vop_init_gamma(vop, state);
+
+	ret = gpio_request_by_name(crtc_state->dev, "mcu-rs-gpios",
+				   0, &vop->mcu_rs_gpio, GPIOD_IS_OUT);
+	if (ret && ret != -ENOENT)
+		printf("%s: Cannot get mcu rs GPIO: %d\n", __func__, ret);
 
 	VOP_CTRL_SET(vop, global_regdone_en, 1);
 	VOP_CTRL_SET(vop, axi_outstanding_max_num, 30);
@@ -286,7 +315,7 @@ static int rockchip_vop_init(struct display_state *state)
 		VOP_CTRL_SET(vop, lvds_pin_pol, val);
 		VOP_CTRL_SET(vop, lvds_dclk_pol, dclk_inv);
 		if (!IS_ERR_OR_NULL(vop->grf))
-			VOP_GRF_SET(vop, grf_dclk_inv, !dclk_inv);
+			VOP_GRF_SET(vop, grf_dclk_inv, dclk_inv);
 		break;
 	case DRM_MODE_CONNECTOR_eDP:
 		VOP_CTRL_SET(vop, edp_en, 1);
@@ -303,9 +332,10 @@ static int rockchip_vop_init(struct display_state *state)
 		VOP_CTRL_SET(vop, mipi_pin_pol, val);
 		VOP_CTRL_SET(vop, mipi_dclk_pol, dclk_inv);
 		VOP_CTRL_SET(vop, mipi_dual_channel_en,
-			!!(conn_state->output_type & ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL));
+			!!(conn_state->output_flags & ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE));
 		VOP_CTRL_SET(vop, data01_swap,
-			!!(conn_state->output_type & ROCKCHIP_OUTPUT_DSI_DUAL_LINK));
+			!!(conn_state->output_flags & ROCKCHIP_OUTPUT_DATA_SWAP) ||
+			crtc_state->dual_channel_swap);
 		break;
 	case DRM_MODE_CONNECTOR_DisplayPort:
 		VOP_CTRL_SET(vop, dp_dclk_pol, 0);
@@ -339,6 +369,8 @@ static int rockchip_vop_init(struct display_state *state)
 		break;
 	case MEDIA_BUS_FMT_RGB666_1X18:
 	case MEDIA_BUS_FMT_RGB666_1X24_CPADHI:
+	case MEDIA_BUS_FMT_RGB666_1X7X3_SPWG:
+	case MEDIA_BUS_FMT_RGB666_1X7X3_JEIDA:
 		val = DITHER_DOWN_EN(1) | DITHER_DOWN_MODE(RGB888_TO_RGB666);
 		break;
 	case MEDIA_BUS_FMT_YUV8_1X24:
@@ -350,6 +382,8 @@ static int rockchip_vop_init(struct display_state *state)
 		val = DITHER_DOWN_EN(0) | PRE_DITHER_DOWN_EN(0);
 		break;
 	case MEDIA_BUS_FMT_RGB888_1X24:
+	case MEDIA_BUS_FMT_RGB888_1X7X4_SPWG:
+	case MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA:
 	default:
 		val = DITHER_DOWN_EN(0) | PRE_DITHER_DOWN_EN(0);
 		break;
@@ -500,12 +534,6 @@ static void scl_vop_cal_scl_fac(struct vop *vop,
 	if (!vop->win->scl)
 		return;
 
-	if (dst_w > vop->max_output.width) {
-		printf("Maximum destination width %d exceeded\n",
-		       vop->max_output.width);
-		return;
-	}
-
 	if (!vop->win->scl->ext) {
 		VOP_SCL_SET(vop, scale_yrgb_x,
 			    scl_cal_scale2(src_w, dst_w));
@@ -638,17 +666,26 @@ static int rockchip_vop_setup_csc_table(struct display_state *state)
 static int rockchip_vop_set_plane(struct display_state *state)
 {
 	struct crtc_state *crtc_state = &state->crtc_state;
+	const struct rockchip_crtc *crtc = crtc_state->crtc;
+	const struct vop_data *vop_data = crtc->data;
 	struct connector_state *conn_state = &state->conn_state;
 	struct drm_display_mode *mode = &conn_state->mode;
 	u32 act_info, dsp_info, dsp_st, dsp_stx, dsp_sty;
 	struct vop *vop = crtc_state->private;
-	int src_w = crtc_state->src_w;
-	int src_h = crtc_state->src_h;
-	int crtc_x = crtc_state->crtc_x;
-	int crtc_y = crtc_state->crtc_y;
-	int crtc_w = crtc_state->crtc_w;
-	int crtc_h = crtc_state->crtc_h;
+	int src_w = crtc_state->src_rect.w;
+	int src_h = crtc_state->src_rect.h;
+	int crtc_x = crtc_state->crtc_rect.x;
+	int crtc_y = crtc_state->crtc_rect.y;
+	int crtc_w = crtc_state->crtc_rect.w;
+	int crtc_h = crtc_state->crtc_rect.h;
 	int xvir = crtc_state->xvir;
+	int x_mirror = 0, y_mirror = 0;
+
+	if (crtc_w > crtc_state->max_output.width) {
+		printf("ERROR: output w[%d] exceeded max width[%d]\n",
+		       crtc_w, crtc_state->max_output.width);
+		return -EINVAL;
+	}
 
 	act_info = (src_h - 1) << 16;
 	act_info |= (src_w - 1) & 0xffff;
@@ -659,14 +696,33 @@ static int rockchip_vop_set_plane(struct display_state *state)
 	dsp_stx = crtc_x + mode->crtc_htotal - mode->crtc_hsync_start;
 	dsp_sty = crtc_y + mode->crtc_vtotal - mode->crtc_vsync_start;
 	dsp_st = dsp_sty << 16 | (dsp_stx & 0xffff);
+	/*
+	 * vop full need to treats rgb888 as bgr888 so we reverse the rb swap to workaround
+	 */
+	if (crtc_state->format == ROCKCHIP_FMT_RGB888 && VOP_MAJOR(vop_data->version) == 3)
+		crtc_state->rb_swap = !crtc_state->rb_swap;
 
-	if (crtc_state->ymirror) {
-		if (VOP_WIN_SUPPORT(vop, vop->win, ymirror))
+	if (mode->flags & DRM_MODE_FLAG_YMIRROR)
+		y_mirror = 1;
+	else
+		y_mirror = 0;
+	if (mode->flags & DRM_MODE_FLAG_XMIRROR)
+		x_mirror = 1;
+	else
+		x_mirror = 0;
+	if (crtc_state->ymirror ^ y_mirror)
+		y_mirror = 1;
+	else
+		y_mirror = 0;
+	if (y_mirror) {
+		if (VOP_CTRL_SUPPORT(vop, ymirror))
 			crtc_state->dma_addr += (src_h - 1) * xvir * 4;
 		else
-			crtc_state->ymirror = 0;
-	}
-	VOP_WIN_SET(vop, ymirror, crtc_state->ymirror);
+			y_mirror = 0;
+		}
+	VOP_CTRL_SET(vop, ymirror, y_mirror);
+	VOP_CTRL_SET(vop, xmirror, x_mirror);
+
 	VOP_WIN_SET(vop, format, crtc_state->format);
 	VOP_WIN_SET(vop, yrgb_vir, xvir);
 	VOP_WIN_SET(vop, yrgb_mst, crtc_state->dma_addr);
@@ -683,6 +739,7 @@ static int rockchip_vop_set_plane(struct display_state *state)
 
 	rockchip_vop_setup_csc_table(state);
 	VOP_WIN_SET(vop, enable, 1);
+	VOP_WIN_SET(vop, gate, 1);
 	vop_cfg_done(vop);
 
 	return 0;
@@ -767,12 +824,12 @@ static int rockchip_vop_send_mcu_cmd(struct display_state *state,
 	if (vop) {
 		switch (type) {
 		case MCU_WRCMD:
-			VOP_CTRL_SET(vop, mcu_rs, 0);
+			set_vop_mcu_rs(vop, 0);
 			VOP_CTRL_SET(vop, mcu_rw_bypass_port, value);
-			VOP_CTRL_SET(vop, mcu_rs, 1);
+			set_vop_mcu_rs(vop, 1);
 			break;
 		case MCU_WRDATA:
-			VOP_CTRL_SET(vop, mcu_rs, 1);
+			set_vop_mcu_rs(vop, 1);
 			VOP_CTRL_SET(vop, mcu_rw_bypass_port, value);
 			break;
 		case MCU_SETBYPASS:
@@ -787,6 +844,7 @@ static int rockchip_vop_send_mcu_cmd(struct display_state *state,
 }
 
 const struct rockchip_crtc_funcs rockchip_vop_funcs = {
+	.preinit = rockchip_vop_preinit,
 	.init = rockchip_vop_init,
 	.set_plane = rockchip_vop_set_plane,
 	.prepare = rockchip_vop_prepare,

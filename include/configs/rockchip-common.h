@@ -20,10 +20,49 @@
 
 #define CONFIG_SYS_NS16550_MEM32
 
+#ifdef CONFIG_SPL_BUILD
 #define CONFIG_NR_DRAM_BANKS		2
+#else
+#define CONFIG_NR_DRAM_BANKS		12
+#endif
 
 #ifndef CONFIG_SPL_BUILD
 #include <config_distro_defaults.h>
+
+#ifdef CONFIG_CMD_RKNAND
+#define BOOTENV_SHARED_RKNAND	BOOTENV_SHARED_BLKDEV(rknand)
+#define BOOTENV_DEV_RKNAND		BOOTENV_DEV_BLKDEV
+#define BOOTENV_DEV_NAME_RKNAND	BOOTENV_DEV_NAME_BLKDEV
+#else
+#define BOOTENV_SHARED_RKNAND
+#define BOOTENV_DEV_RKNAND \
+	BOOT_TARGET_DEVICES_references_RKNAND_without_CONFIG_CMD_RKNAND
+#define BOOTENV_DEV_NAME_RKNAND \
+	BOOT_TARGET_DEVICES_references_RKNAND_without_CONFIG_CMD_RKNAND
+#endif
+
+#ifdef CONFIG_CMD_MTD_BLK
+#define BOOTENV_SHARED_MTD				\
+	"mtd_boot="					\
+		"if mtd_blk dev ${devnum}; then "	\
+			"setenv devtype mtd; "		\
+			"run scan_dev_for_boot_part; "	\
+		"fi\0"
+#define BOOTENV_DEV_MTD		BOOTENV_DEV_BLKDEV
+#define BOOTENV_DEV_NAME_MTD	BOOTENV_DEV_NAME_BLKDEV
+#else
+#define BOOTENV_SHARED_MTD
+#define BOOTENV_DEV_MTD		\
+	BOOT_TARGET_DEVICES_references_MTD_without_CONFIG_CMD_MTD_BLK
+#define BOOTENV_DEV_NAME_MTD	\
+	BOOT_TARGET_DEVICES_references_MTD_without_CONFIG_CMD_MTD_BLK
+#endif
+
+#if (CONFIG_IS_ENABLED(CMD_PCI) && CONFIG_IS_ENABLED(CMD_NVME))
+	#define BOOT_TARGET_NVME(func) func(NVME, nvme, na)
+#else
+	#define BOOT_TARGET_NVME(func)
+#endif
 
 /* First try to boot from SD (index 1), then eMMC (index 0) */
 #if CONFIG_IS_ENABLED(CMD_MMC)
@@ -32,6 +71,21 @@
 		func(MMC, mmc, 0)
 #else
 	#define BOOT_TARGET_MMC(func)
+#endif
+
+#if CONFIG_IS_ENABLED(CMD_MTD_BLK)
+	#define BOOT_TARGET_MTD(func)	\
+		func(MTD, mtd, 2)	\
+		func(MTD, mtd, 1)	\
+		func(MTD, mtd, 0)
+#else
+	#define BOOT_TARGET_MTD(func)
+#endif
+
+#if CONFIG_IS_ENABLED(CMD_RKNAND)
+	#define BOOT_TARGET_RKNAND(func) func(RKNAND, rknand, 0)
+#else
+	#define BOOT_TARGET_RKNAND(func)
 #endif
 
 #if CONFIG_IS_ENABLED(CMD_USB)
@@ -53,7 +107,10 @@
 #endif
 
 #define BOOT_TARGET_DEVICES(func) \
+	BOOT_TARGET_NVME(func) \
 	BOOT_TARGET_MMC(func) \
+	BOOT_TARGET_MTD(func) \
+	BOOT_TARGET_RKNAND(func) \
 	BOOT_TARGET_USB(func) \
 	BOOT_TARGET_PXE(func) \
 	BOOT_TARGET_DHCP(func)
@@ -99,25 +156,42 @@
 
 #define RKIMG_DET_BOOTDEV \
 	"rkimg_bootdev=" \
-	"if mmc dev 1 && rkimgtest mmc 1; then " \
+	"if nvme dev 0; then " \
+		"setenv devtype nvme; setenv devnum 0; echo Boot from nvme;" \
+	"elif mmc dev 1 && rkimgtest mmc 1; then " \
 		"setenv devtype mmc; setenv devnum 1; echo Boot from SDcard;" \
 	"elif mmc dev 0; then " \
 		"setenv devtype mmc; setenv devnum 0;" \
+	"elif mtd_blk dev 0; then " \
+		"setenv devtype mtd; setenv devnum 0;" \
+	"elif mtd_blk dev 1; then " \
+		"setenv devtype mtd; setenv devnum 1;" \
+	"elif mtd_blk dev 2; then " \
+		"setenv devtype mtd; setenv devnum 2;" \
 	"elif rknand dev 0; then " \
 		"setenv devtype rknand; setenv devnum 0;" \
 	"elif rksfc dev 0; then " \
 		"setenv devtype spinand; setenv devnum 0;" \
 	"elif rksfc dev 1; then " \
 		"setenv devtype spinor; setenv devnum 1;" \
+	"else" \
+		"setenv devtype ramdisk; setenv devnum 0;" \
 	"fi; \0"
 
-#define RKIMG_BOOTCOMMAND \
-	"run distro_bootcmd;"\
-	"boot_android ${devtype} ${devnum};" \
-	"bootrkp;"
-
+#if defined(CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE)
+#define RKIMG_BOOTCOMMAND			\
+	"boot_android ${devtype} ${devnum};"
+#elif defined(CONFIG_FIT_SIGNATURE)
+#define RKIMG_BOOTCOMMAND			\
+	"boot_fit;"
+#else
+#define RKIMG_BOOTCOMMAND			\
+	"setenv nvme_need_init; for target in ${boot_targets}; do run bootcmd_${target}; done"
 #endif
 
+#endif /* CONFIG_SPL_BUILD */
+
 #define CONFIG_DISPLAY_BOARDINFO_LATE
+#define CONFIG_SYS_AUTOLOAD	"no"
 
 #endif /* _ROCKCHIP_COMMON_H_ */

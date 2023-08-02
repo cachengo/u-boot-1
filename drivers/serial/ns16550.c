@@ -246,6 +246,12 @@ static inline void _debug_uart_init(void)
 	struct NS16550 *com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
 	int baud_divisor;
 
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return;
+
+	if (gd && gd->serial.using_pre_serial)
+		return;
+
 	/*
 	 * We copy the code from above because it is already horribly messy.
 	 * Trying to refactor to nicely remove the duplication doesn't seem
@@ -266,11 +272,124 @@ static inline void _debug_uart_init(void)
 
 static inline void _debug_uart_putc(int ch)
 {
-	struct NS16550 *com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+	struct NS16550 *com_port;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return;
+
+	if (gd && gd->serial.addr)
+		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
 
 	while (!(serial_din(&com_port->lsr) & UART_LSR_THRE))
 		;
 	serial_dout(&com_port->thr, ch);
+}
+
+static inline int _debug_uart_getc(void)
+{
+	struct NS16550 *com_port;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr)
+		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+
+	while (!(serial_din(&com_port->lsr) & UART_LSR_DR))
+		;
+
+	return serial_din(&com_port->rbr);
+}
+
+static inline int _debug_uart_tstc(int input)
+{
+	struct NS16550 *com_port;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr)
+		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+
+	if (input)
+		return serial_din(&com_port->lsr) & UART_LSR_DR ? 1 : 0;
+	else
+		return serial_din(&com_port->lsr) & UART_LSR_THRE ? 0 : 1;
+}
+
+static inline int _debug_uart_clrc(void)
+{
+	struct NS16550 *com_port;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr)
+		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+
+	serial_dout(&com_port->fcr, UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT);
+
+	return 0;
+}
+
+static inline int _debug_uart_flushc(void)
+{
+	struct NS16550 *com_port;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr)
+		com_port = (struct NS16550 *)gd->serial.addr;
+	else
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+
+	/*
+	 * Wait fifo flush.
+	 *
+	 * UART_USR: bit2 trans_fifo_empty:
+	 *	0 = Transmit FIFO is not empty
+	 *	1 = Transmit FIFO is empty
+	 */
+	while (!(serial_din(&com_port->rbr + 0x1f) & 0x04))
+		;
+
+	return 0;
+}
+
+/* should use gd->baudrate, it can be updated by env callback: on_baudrate() */
+static inline int _debug_uart_setbrg(void)
+{
+	struct NS16550 *com_port;
+	int baud_divisor;
+
+	if (gd && gd->flags & GD_FLG_DISABLE_CONSOLE)
+		return 0;
+
+	if (gd && gd->serial.addr) {
+		com_port = (struct NS16550 *)gd->serial.addr;
+		baud_divisor = ns16550_calc_divisor(com_port,
+			CONFIG_DEBUG_UART_CLOCK, gd->baudrate);
+	} else {
+		com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
+		baud_divisor = ns16550_calc_divisor(com_port,
+			CONFIG_DEBUG_UART_CLOCK, CONFIG_BAUDRATE);
+	}
+
+	serial_dout(&com_port->lcr, UART_LCR_BKSE | UART_LCRVAL);
+	serial_dout(&com_port->dll, baud_divisor & 0xff);
+	serial_dout(&com_port->dlm, (baud_divisor >> 8) & 0xff);
+	serial_dout(&com_port->lcr, UART_LCRVAL);
+
+	return 0;
 }
 
 DEBUG_UART_FUNCS
@@ -318,7 +437,6 @@ static int ns16550_serial_putc(struct udevice *dev, const char ch)
 {
 	struct NS16550 *const com_port = dev_get_priv(dev);
 
-#ifdef CONFIG_ARCH_ROCKCHIP
 	/*
 	 * Use fifo function.
 	 *
@@ -328,10 +446,6 @@ static int ns16550_serial_putc(struct udevice *dev, const char ch)
 	 */
 	while (!(serial_in(&com_port->rbr + 0x1f) & 0x02))
 		;
-#else
-	if (!(serial_in(&com_port->lsr) & UART_LSR_THRE))
-		return -EAGAIN;
-#endif
 	serial_out(ch, &com_port->thr);
 
 	/*
@@ -342,20 +456,6 @@ static int ns16550_serial_putc(struct udevice *dev, const char ch)
 	 */
 	if (ch == '\n')
 		WATCHDOG_RESET();
-
-#ifdef CONFIG_ARCH_ROCKCHIP
-	/*
-	 * Wait fifo flush.
-	 *
-	 * UART_USR: bit2 trans_fifo_empty:
-	 *	0 = Transmit FIFO is not empty
-	 *	1 = Transmit FIFO is empty
-	 */
-	if (gd->flags & GD_FLG_OS_RUN) {
-		while (!(serial_in(&com_port->rbr + 0x1f) & 0x04))
-			;
-	}
-#endif
 
 	return 0;
 }
@@ -393,6 +493,15 @@ static int ns16550_serial_setbrg(struct udevice *dev, int baudrate)
 	return 0;
 }
 
+static int ns16550_serial_clear(struct udevice *dev)
+{
+	struct NS16550 *const com_port = dev_get_priv(dev);
+
+	serial_out(UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT, &com_port->fcr);
+
+	return 0;
+}
+
 int ns16550_serial_probe(struct udevice *dev)
 {
 	struct NS16550 *const com_port = dev_get_priv(dev);
@@ -421,7 +530,7 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 
 	/* try Processor Local Bus device first */
 	addr = dev_read_addr(dev);
-#if defined(CONFIG_PCI) && defined(CONFIG_DM_PCI)
+#if defined(CONFIG_PCI) && CONFIG_IS_ENABLED(DM_PCI)
 	if (addr == FDT_ADDR_T_NONE) {
 		/* then try pci device */
 		struct fdt_pci_addr pci_addr;
@@ -468,11 +577,7 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 		if (!IS_ERR_VALUE(err))
 			plat->clock = err;
 	} else if (err != -ENOENT && err != -ENODEV && err != -ENOSYS) {
-		debug("ns16550 failed to get clock\n");
-#ifdef CONFIG_USING_KERNEL_DTB
-/* With kernel dtb support, serial ofnode not able to get cru phandle */
-		if(err != -EINVAL)
-#endif
+		printf("ns16550 failed to get clock, err=%d\n", err);
 		return err;
 	}
 
@@ -497,6 +602,7 @@ const struct dm_serial_ops ns16550_serial_ops = {
 	.pending = ns16550_serial_pending,
 	.getc = ns16550_serial_getc,
 	.setbrg = ns16550_serial_setbrg,
+	.clear = ns16550_serial_clear,
 };
 
 #if CONFIG_IS_ENABLED(SERIAL_PRESENT)

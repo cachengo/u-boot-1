@@ -36,7 +36,35 @@
  */
 
 #include <android_avb/avb_sha.h>
+#include <android_avb/avb_util.h>
 
+/* Crypto-v1 is not support sha512 */
+#ifdef CONFIG_ROCKCHIP_CRYPTO_V2
+void avb_sha512_init(AvbSHA512Ctx* ctx) {
+  ctx->crypto_ctx.algo = CRYPTO_SHA512;
+  ctx->crypto_ctx.length = ctx->tot_len;
+  memset(ctx->buf, 0, sizeof(ctx->buf));
+
+  ctx->crypto_dev = crypto_get_device(ctx->crypto_ctx.algo);
+  if (!ctx->crypto_dev)
+    avb_error("Can't get sha512 crypto device\n");
+  else
+    crypto_sha_init(ctx->crypto_dev, &ctx->crypto_ctx);
+}
+
+void avb_sha512_update(AvbSHA512Ctx* ctx, const uint8_t* data, size_t len) {
+  if (ctx->crypto_dev)
+    crypto_sha_update(ctx->crypto_dev, (u32 *)data, len);
+}
+
+uint8_t* avb_sha512_final(AvbSHA512Ctx* ctx) {
+  if (ctx->crypto_dev)
+    crypto_sha_final(ctx->crypto_dev, &ctx->crypto_ctx, ctx->buf);
+
+  return ctx->buf;
+}
+
+#else
 #define SHFR(x, n) (x >> n)
 #define ROTR(x, n) ((x >> n) | (x << ((sizeof(x) << 3) - n)))
 #define ROTL(x, n) ((x << n) | (x >> ((sizeof(x) << 3) - n)))
@@ -154,14 +182,14 @@ void avb_sha512_init(AvbSHA512Ctx* ctx) {
 
 static void SHA512_transform(AvbSHA512Ctx* ctx,
                              const uint8_t* message,
-                             unsigned int block_nb) {
+                             size_t block_nb) {
   uint64_t w[80];
   uint64_t wv[8];
   uint64_t t1, t2;
   const uint8_t* sub_block;
-  int i, j;
+  size_t i, j;
 
-  for (i = 0; i < (int)block_nb; i++) {
+  for (i = 0; i < block_nb; i++) {
     sub_block = message + (i << 7);
 
 #ifdef UNROLL_LOOPS_SHA512
@@ -318,9 +346,9 @@ static void SHA512_transform(AvbSHA512Ctx* ctx,
   }
 }
 
-void avb_sha512_update(AvbSHA512Ctx* ctx, const uint8_t* data, uint32_t len) {
-  unsigned int block_nb;
-  unsigned int new_len, rem_len, tmp_len;
+void avb_sha512_update(AvbSHA512Ctx* ctx, const uint8_t* data, size_t len) {
+  size_t block_nb;
+  size_t new_len, rem_len, tmp_len;
   const uint8_t* shifted_data;
 
   tmp_len = AVB_SHA512_BLOCK_SIZE - ctx->len;
@@ -350,12 +378,12 @@ void avb_sha512_update(AvbSHA512Ctx* ctx, const uint8_t* data, uint32_t len) {
 }
 
 uint8_t* avb_sha512_final(AvbSHA512Ctx* ctx) {
-  unsigned int block_nb;
-  unsigned int pm_len;
-  unsigned int len_b;
+  size_t block_nb;
+  size_t pm_len;
+  uint64_t len_b;
 
 #ifndef UNROLL_LOOPS_SHA512
-  int i;
+  size_t i;
 #endif
 
   block_nb =
@@ -366,7 +394,7 @@ uint8_t* avb_sha512_final(AvbSHA512Ctx* ctx) {
 
   avb_memset(ctx->block + ctx->len, 0, pm_len - ctx->len);
   ctx->block[ctx->len] = 0x80;
-  UNPACK32(len_b, ctx->block + pm_len - 4);
+  UNPACK64(len_b, ctx->block + pm_len - 8);
 
   SHA512_transform(ctx, ctx->block, block_nb);
 
@@ -386,3 +414,4 @@ uint8_t* avb_sha512_final(AvbSHA512Ctx* ctx) {
 
   return ctx->buf;
 }
+#endif

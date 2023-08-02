@@ -5,6 +5,7 @@
  */
 
 #include <common.h>
+#include <asm/arch/vendor.h>
 #include <dm.h>
 #include <dm/device-internal.h>
 #include <dm/lists.h>
@@ -93,6 +94,34 @@ ulong rknand_berase(struct udevice *udev, lbaint_t start,
 	return blkcnt;
 }
 
+int rkftl_nand_vendor_read(struct blk_desc *dev_desc,
+			   u32 index,
+			   u32 n_sec,
+			   void *p_data)
+{
+	int ret;
+
+	ret = ftl_vendor_read(index, n_sec, p_data);
+	if (!ret)
+		return n_sec;
+	else
+		return -EIO;
+}
+
+int rkftl_nand_vendor_write(struct blk_desc *dev_desc,
+			    u32 index,
+			    u32 n_sec,
+			    void *p_data)
+{
+	int ret;
+
+	ret = ftl_vendor_write(index, n_sec, p_data);
+	if (!ret)
+		return n_sec;
+	else
+		return -EIO;
+}
+
 int rknand_scan_namespace(void)
 {
 	struct uclass *uc;
@@ -162,6 +191,12 @@ static int rockchip_nand_probe(struct udevice *udev)
 		ndev->read = ftl_read;
 		ndev->write = ftl_write;
 		ndev->erase = ftl_discard;
+#ifndef CONFIG_SPL_BUILD
+#ifdef CONFIG_ROCKCHIP_VENDOR_PARTITION
+		flash_vendor_dev_ops_register(rkftl_nand_vendor_read,
+					      rkftl_nand_vendor_write);
+#endif
+#endif
 	}
 
 	return ret;
@@ -169,10 +204,8 @@ static int rockchip_nand_probe(struct udevice *udev)
 
 static const struct blk_ops rknand_blk_ops = {
 	.read	= rknand_bread,
-#ifndef CONFIG_SPL_BUILD
 	.write	= rknand_bwrite,
 	.erase	= rknand_berase,
-#endif
 };
 
 static const struct udevice_id rockchip_nand_ids[] = {

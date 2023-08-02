@@ -9,7 +9,7 @@
 #include <dm.h>
 #include <fdtdec.h>
 #include <fdt_support.h>
-#include <libfdt.h>
+#include <linux/libfdt.h>
 #include <dm/of_access.h>
 #include <dm/of_addr.h>
 #include <dm/ofnode.h>
@@ -54,6 +54,21 @@ int ofnode_read_s32_default(ofnode node, const char *propname, s32 def)
 	ofnode_read_u32(node, propname, (u32 *)&def);
 
 	return def;
+}
+
+int ofnode_read_u64(ofnode node, const char *propname, u64 *outp)
+{
+	assert(ofnode_valid(node));
+	debug("%s: %s: ", __func__, propname);
+
+	if (ofnode_is_np(node)) {
+		return of_property_read_u64(ofnode_to_np(node), propname, outp);
+	} else {
+		printf("%s: not implement\n", __func__);
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 bool ofnode_read_bool(ofnode node, const char *propname)
@@ -142,6 +157,21 @@ int ofnode_read_u32_array(ofnode node, const char *propname,
 		return fdtdec_get_int_array(gd->fdt_blob,
 					    ofnode_to_offset(node), propname,
 					    out_values, sz);
+	}
+}
+
+int ofnode_write_u32_array(ofnode node, const char *propname,
+			   u32 *values, size_t sz)
+{
+	assert(ofnode_valid(node));
+	debug("%s: %s: ", __func__, propname);
+
+	if (ofnode_is_np(node)) {
+		return of_write_u32_array(ofnode_to_np(node), propname,
+					 values, sz);
+	} else {
+		return fdt_setprop((void *)gd->fdt_blob, ofnode_to_offset(node),
+				   propname, values, sz);
 	}
 }
 
@@ -482,6 +512,54 @@ const void *ofnode_get_property(ofnode node, const char *propname, int *lenp)
 				   propname, lenp);
 }
 
+int ofnode_get_first_property(ofnode node, struct ofprop *prop)
+{
+	prop->node = node;
+
+	if (ofnode_is_np(node)) {
+		prop->prop = of_get_first_property(ofnode_to_np(prop->node));
+		if (!prop->prop)
+			return -FDT_ERR_NOTFOUND;
+	} else {
+		prop->offset =
+			fdt_first_property_offset(gd->fdt_blob,
+						  ofnode_to_offset(prop->node));
+		if (prop->offset < 0)
+			return prop->offset;
+	}
+
+	return 0;
+}
+
+int ofnode_get_next_property(struct ofprop *prop)
+{
+	if (ofnode_is_np(prop->node)) {
+		prop->prop = of_get_next_property(ofnode_to_np(prop->node),
+						  prop->prop);
+		if (!prop->prop)
+			return -FDT_ERR_NOTFOUND;
+	} else {
+		prop->offset = fdt_next_property_offset(gd->fdt_blob,
+							prop->offset);
+		if (prop->offset  < 0)
+			return prop->offset;
+	}
+
+	return 0;
+}
+
+const void *ofnode_get_property_by_prop(const struct ofprop *prop,
+					const char **propname, int *lenp)
+{
+	if (ofnode_is_np(prop->node))
+		return of_get_property_by_prop(ofnode_to_np(prop->node),
+					       prop->prop, propname, lenp);
+	else
+		return fdt_getprop_by_offset(gd->fdt_blob,
+					     prop->offset,
+					     propname, lenp);
+}
+
 bool ofnode_is_available(ofnode node)
 {
 	if (ofnode_is_np(node))
@@ -671,4 +749,12 @@ int ofnode_read_resource_byname(ofnode node, const char *name,
 		return index;
 
 	return ofnode_read_resource(node, index, res);
+}
+
+u64 ofnode_translate_address(ofnode node, const fdt32_t *in_addr)
+{
+	if (ofnode_is_np(node))
+		return of_translate_address(ofnode_to_np(node), in_addr);
+	else
+		return fdt_translate_address(gd->fdt_blob, ofnode_to_offset(node), in_addr);
 }

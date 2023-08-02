@@ -16,7 +16,7 @@
 #include <power/charge_animation.h>
 #include <power/fuel_gauge.h>
 #include <power/rk8xx_pmic.h>
-#include <linux/usb/phy-rockchip-inno-usb2.h>
+#include <linux/usb/phy-rockchip-usb2.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -118,7 +118,7 @@ static int dbg_enable = 0;
 #define NEW_FCC_REG0		0x00a0
 #define NEW_FCC_REG1		0x00a1
 #define NEW_FCC_REG2		0x00a2
-#define DATA6			0x00a3
+#define DRV_VERSION		0x00a3
 #define DATA7			0x00a4
 #define FG_INIT			0x00a5
 #define HALT_CNT_REG		0x00a6
@@ -132,6 +132,7 @@ static int dbg_enable = 0;
 #define CUR_ADC_K2		0x00ae
 #define CUR_ADC_K1		0x00af
 #define CUR_ADC_K0		0x00b0
+#define PMIC_CHRG_STS		0x00eb
 #define BAT_DISCHRG		0x00ec
 #define BAT_CON			BIT(4)
 
@@ -252,6 +253,10 @@ struct rk817_battery_device {
 	ulong				finish_chrg_base;
 	ulong				term_sig_base;
 	int				sm_meet_soc;
+	u32				bat_res_up;
+	u32				bat_res_down;
+	u32				variant;
+	int				drv_version;
 };
 
 static u32 interpolate(int value, u32 *table, int size)
@@ -337,55 +342,76 @@ static void rk817_bat_init_voltage_kb(struct rk817_battery_device *battery)
 
 	vcalib0 = rk817_bat_get_vaclib0(battery);
 	vcalib1 =  rk817_bat_get_vaclib1(battery);
-	battery->voltage_k = (4025 - 2300) * 1000 / DIV(vcalib1 - vcalib0);
-	battery->voltage_b = 4025 - (battery->voltage_k * vcalib1) / 1000;
+
+	if (battery->variant == RK809_ID) {
+		battery->voltage_k = (1050 - 600) * 1000 / DIV(vcalib1 - vcalib0);
+		battery->voltage_b = 1050 - (battery->voltage_k * vcalib1) / 1000;
+	} else {
+		battery->voltage_k = (4025 - 2300) * 1000 / DIV(vcalib1 - vcalib0);
+		battery->voltage_b = 4025 - (battery->voltage_k * vcalib1) / 1000;
+	}
 }
 
 /* power on battery voltage */
 static int rk817_bat_get_pwron_voltage(struct rk817_battery_device *battery)
 {
-	int vol, val = 0;
+	int vol, val = 0, vol_temp;
 
 	val = rk817_bat_read(battery, PWRON_VOL_H) << 8;
 	val |= rk817_bat_read(battery, PWRON_VOL_L);
 	vol = battery->voltage_k * val / 1000 + battery->voltage_b;
+	if (battery->variant == RK809_ID) {
+		vol_temp = (vol * battery->bat_res_up / battery->bat_res_down + vol);
+		vol = vol_temp;
+	}
 
 	return vol;
 }
 
 static int rk817_bat_get_USB_voltage(struct rk817_battery_device *battery)
 {
-	int vol, val = 0;
+	int vol, val = 0, vol_temp;
 
 	val = rk817_bat_read(battery, USB_VOL_L) << 0;
 	val |= rk817_bat_read(battery, USB_VOL_H) << 8;
 
 	vol = (battery->voltage_k * val / 1000 + battery->voltage_b) * 60 / 46;
+	if (battery->variant == RK809_ID) {
+		vol_temp = vol * battery->bat_res_up / battery->bat_res_down + vol;
+		vol = vol_temp;
+	}
 
 	return vol;
 }
 
 static int rk817_bat_get_sys_voltage(struct rk817_battery_device *battery)
 {
-	int vol, val = 0;
+	int vol, val = 0, vol_temp;
 
 	val = rk817_bat_read(battery, SYS_VOL_H) << 8;
 	val |= rk817_bat_read(battery, SYS_VOL_L) << 0;
 
 	vol = (battery->voltage_k * val / 1000 + battery->voltage_b) * 60 / 46;
+	if (battery->variant == RK809_ID) {
+		vol_temp = vol * battery->bat_res_up / battery->bat_res_down + vol;
+		vol = vol_temp;
+	}
 
 	return vol;
 }
 
 static int rk817_bat_get_battery_voltage(struct rk817_battery_device *battery)
 {
-	int vol, val = 0;
+	int vol, val = 0, vol_temp;
 
 	val = rk817_bat_read(battery, BAT_VOL_H) << 8;
 	val |= rk817_bat_read(battery, BAT_VOL_L) << 0;
 
 	vol = battery->voltage_k * val / 1000 + battery->voltage_b;
-
+	if (battery->variant == RK809_ID) {
+		vol_temp = (vol * battery->bat_res_up / battery->bat_res_down + vol);
+		vol = vol_temp;
+	}
 	return vol;
 }
 
@@ -437,6 +463,8 @@ static void rk817_bat_calibration(struct rk817_battery_device *battery)
 	}
 }
 
+static int rk817_bat_get_rsoc(struct rk817_battery_device *battery);
+
 static void rk817_bat_init_coulomb_cap(struct rk817_battery_device *battery,
 				       u32 capacity)
 {
@@ -462,7 +490,7 @@ static void rk817_bat_init_coulomb_cap(struct rk817_battery_device *battery,
 		val |= rk817_bat_read(battery, Q_INIT_L0) << 0;
 	} while (cap != val);
 
-	battery->rsoc = capacity * 1000 * 100 / battery->fcc;
+	battery->rsoc = rk817_bat_get_rsoc(battery);
 	battery->remain_cap = capacity * 1000;
 }
 
@@ -753,8 +781,7 @@ static void rk817_bat_set_initialized_flag(struct rk817_battery_device *battery)
 
 static void rk817_bat_not_first_pwron(struct rk817_battery_device *battery)
 {
-	int now_cap, pre_soc, pre_cap;
-	int is_charge = 0, temp_soc = 0;
+	int now_soc, now_cap, pre_soc, pre_cap;
 
 	battery->fcc = rk817_bat_get_fcc(battery);
 	pre_soc = rk817_bat_get_prev_dsoc(battery);
@@ -767,72 +794,27 @@ static void rk817_bat_not_first_pwron(struct rk817_battery_device *battery)
 	battery->remain_cap = pre_cap * 1000;
 	battery->is_halt = is_rk817_bat_last_halt(battery);
 
-	if (now_cap == 0) {
-		if (battery->pwroff_min > 3) {
-			battery->nac = rk817_bat_vol_to_cap(battery,
-					    battery->pwron_voltage);
-			now_cap = battery->nac;
-			pre_cap = now_cap;
-			printf("now_cap 0x%x\n", now_cap);
-		} else {
-			now_cap = pre_cap;
-		}
-
-		rk817_bat_init_coulomb_cap(battery, now_cap);
-		goto finish;
-	}
+	DBG("now_cap: %d, pre_cap: %d\n", now_cap, pre_cap);
 
 	if (now_cap > pre_cap) {
-		is_charge = 1;
-		if ((now_cap > battery->fcc * 2) &&
-		    ((battery->pwroff_min > 0) &&
-		    (battery->pwroff_min < 3))) {
-			now_cap = pre_cap;
-			is_charge = 0;
-		}
-	} else {
-		is_charge = 0;
+		if (now_cap >= battery->fcc)
+			now_cap = battery->fcc;
+
+		now_soc = now_cap * 1000 * 100 / battery->fcc;
+		if (pre_soc < 100 * 1000)
+			pre_soc += (now_soc - pre_cap * 1000 * 100 / battery->fcc);
+		pre_cap = now_cap;
+
+		if (pre_soc >= 100 * 1000)
+			pre_soc = 100 * 1000;
+		if (now_cap >= battery->fcc)
+			pre_soc = 100 * 1000;
 	}
 
-	if (is_charge == 0) {
-		if ((battery->pwroff_min >= 0)  && (battery->pwroff_min < 3)) {
-			rk817_bat_init_coulomb_cap(battery, pre_cap);
-			rk817_bat_get_capacity_mah(battery);
-			goto finish;
-		}
+	rk817_bat_init_coulomb_cap(battery, pre_cap);
+	rk817_bat_init_coulomb_cap(battery, pre_cap + 1);
+	rk817_bat_get_capacity_mah(battery);
 
-		if (battery->pwroff_min >= 3) {
-			if (battery->nac > pre_cap) {
-				rk817_bat_init_coulomb_cap(battery,
-							   battery->nac);
-				rk817_bat_get_capacity_mah(battery);
-				pre_cap = battery->nac;
-				goto finish;
-			}
-
-			if ((pre_cap - battery->nac) > (battery->fcc / 10)) {
-				rk817_bat_inc_halt_cnt(battery);
-				temp_soc = (pre_cap - battery->nac) * 1000 * 100 / battery->fcc;
-				pre_soc -= temp_soc;
-				pre_cap = battery->nac;
-				if (pre_soc <= 0)
-					pre_soc = 0;
-				goto finish;
-			}
-		}
-	} else {
-		battery->remain_cap = rk817_bat_get_capacity_uah(battery);
-		battery->rsoc = rk817_bat_get_rsoc(battery);
-
-		if (pre_cap < battery->remain_cap / 1000) {
-			pre_soc += (battery->remain_cap - pre_cap * 1000) * 100 / battery->fcc;
-			if (pre_soc > 100000)
-				pre_soc = 100000;
-		}
-		pre_cap = battery->remain_cap / 1000;
-		goto finish;
-	}
-finish:
 	battery->dsoc = pre_soc;
 	if (battery->dsoc > 100000)
 		battery->dsoc = 100000;
@@ -849,9 +831,24 @@ finish:
 
 static void rk817_bat_rsoc_init(struct rk817_battery_device *battery)
 {
+	int version, value;
+
 	battery->is_first_power_on = is_rk817_bat_first_pwron(battery);
 	battery->pwroff_min = rk817_bat_get_off_count(battery);
 	battery->pwron_voltage = rk817_bat_get_pwron_voltage(battery);
+
+	value = rk817_bat_read(battery, DRV_VERSION);
+	/* drv_version: bit0~bit3 */
+	version = value & 0x0f;
+	/* drv_version: [0 15] */
+	battery->drv_version &= 0x0f;
+	DBG("reg read version:%d dts read version:%d\n", version, battery->drv_version);
+	if (battery->drv_version != version) {
+		battery->is_first_power_on = 1;
+		value &= 0xf0;
+		value |= battery->drv_version;
+		rk817_bat_write(battery, DRV_VERSION, value);
+	}
 
 	DBG("battery = %d\n", rk817_bat_get_battery_voltage(battery));
 	DBG("%s: is_first_power_on = %d, pwroff_min = %d, pwron_voltage = %d\n",
@@ -921,21 +918,30 @@ static int rk817_bat_update_get_current(struct udevice *dev)
 		return VIRTUAL_POWER_CUR;
 }
 
-static int rk817_bat_dwc_otg_check_dpdm(void)
+static int rk817_bat_dwc_otg_check_dpdm(struct rk817_battery_device *battery)
 {
-	return rockchip_chg_get_type();
+	if (battery->variant == RK809_ID) {
+		if (rk817_bat_read(battery, PMIC_SYS_STS) & PLUG_IN_STS)
+			return AC_CHARGER;
+		else
+			return NO_CHARGER;
+	} else {
+		return  rockchip_chg_get_type();
+	}
 }
 
 static bool rk817_bat_update_get_chrg_online(struct udevice *dev)
 {
-	return rk817_bat_dwc_otg_check_dpdm();
+	struct rk817_battery_device *battery = dev_get_priv(dev);
+
+	return rk817_bat_dwc_otg_check_dpdm(battery);
 }
 
 static int rk817_bat_get_usb_state(struct rk817_battery_device *battery)
 {
 	int charger_type;
 
-	switch (rk817_bat_dwc_otg_check_dpdm()) {
+	switch (rk817_bat_dwc_otg_check_dpdm(battery)) {
 	case POWER_SUPPLY_TYPE_UNKNOWN:
 		if ((rk817_bat_read(battery, PMIC_SYS_STS) & PLUG_IN_STS) != 0)
 			charger_type = DC_CHARGER;
@@ -959,6 +965,8 @@ static int rk817_bat_get_usb_state(struct rk817_battery_device *battery)
 
 static int rk817_bat_get_charger_type(struct rk817_battery_device *battery)
 {
+	u32 chrg_type;
+
 	/* check by ic hardware: this check make check work safer */
 	if ((rk817_bat_read(battery, PMIC_SYS_STS) & PLUG_IN_STS) == 0)
 		return NO_CHARGER;
@@ -968,7 +976,11 @@ static int rk817_bat_get_charger_type(struct rk817_battery_device *battery)
 		return DC_CHARGER;
 
 	/* check USB secondly */
-	return rk817_bat_get_usb_state(battery);
+	chrg_type = rk817_bat_get_usb_state(battery);
+	if (chrg_type != NO_CHARGER && battery->rsoc / 1000 >= 100)
+		chrg_type = CHARGE_FINISH;
+
+	return chrg_type;
 }
 
 static void rk817_bat_set_input_current(struct rk817_battery_device *battery,
@@ -1176,7 +1188,26 @@ static int rk817_bat_update_get_soc(struct udevice *dev)
 		return VIRTUAL_POWER_SOC;
 }
 
+static int rk817_is_bat_exist(struct rk817_battery_device *battery)
+{
+	struct rk8xx_priv *rk8xx = dev_get_priv(battery->dev->parent);
+
+	if (rk8xx->variant == RK817_ID)
+		return (rk817_bat_read(battery, PMIC_CHRG_STS) & 0x80) ? 1 : 0;
+
+	return 1;
+}
+
+static int rk817_bat_bat_is_exist(struct udevice *dev)
+{
+        struct rk817_battery_device *battery = dev_get_priv(dev);
+
+        return rk817_is_bat_exist(battery);
+}
+
+
 static struct dm_fuel_gauge_ops fg_ops = {
+	.bat_is_exist = rk817_bat_bat_is_exist,
 	.get_soc = rk817_bat_update_get_soc,
 	.get_voltage = rk817_bat_update_get_voltage,
 	.get_current = rk817_bat_update_get_current,
@@ -1191,14 +1222,14 @@ static int rk817_fg_ofdata_to_platdata(struct udevice *dev)
 	int  len, value;
 	int i;
 
-	if (rk8xx->variant != 0x8170) {
+	if ((rk8xx->variant != RK817_ID) && (rk8xx->variant != RK809_ID)) {
 		debug("%s: Not support pmic variant: rk%x\n",
 		      __func__, rk8xx->variant);
 		return -EINVAL;
 	}
 
 	battery->dev = dev;
-
+	battery->variant = rk8xx->variant;
 	/* Parse ocv table */
 	prop = dev_read_prop(dev, "ocv_table", &len);
 	if (!prop) {
@@ -1233,6 +1264,28 @@ static int rk817_fg_ofdata_to_platdata(struct udevice *dev)
 		return -EINVAL;
 	}
 
+	battery->virtual_power = dev_read_u32_default(dev, "virtual_power", 0);
+	if (!rk817_is_bat_exist(battery))
+		battery->virtual_power = 1;
+
+	if (rk8xx->variant == RK809_ID) {
+		battery->bat_res_up  = dev_read_u32_default(dev, "bat_res_up", -1);
+		if (battery->bat_res_up < 0) {
+			printf("can't read bat_res_up\n");
+			return -EINVAL;
+		}
+
+		battery->bat_res_down  = dev_read_u32_default(dev, "bat_res_down", -1);
+		if (battery->bat_res_down < 0) {
+			printf("can't read bat_res_down\n");
+			return -EINVAL;
+		}
+	}
+
+	battery->drv_version  = dev_read_u32_default(dev, "drv_version", -1);
+	if (battery->drv_version < 0)
+		battery->drv_version = 0;
+
 	value = dev_read_u32_default(dev, "sample_res", -1);
 	if (battery->res_div < 0)
 		printf("read sample_res error\n");
@@ -1246,6 +1299,8 @@ static int rk817_fg_ofdata_to_platdata(struct udevice *dev)
 	DBG("ocvsize: %d\n", battery->ocv_size);
 	DBG("battery->design_cap: %d\n", battery->design_cap);
 	DBG("battery->qmax: %d\n", battery->qmax);
+	DBG("battery->bat_res_up: %d\n", battery->bat_res_up);
+	DBG("battery->bat_res_down: %d\n", battery->bat_res_down);
 
 	return 0;
 }
@@ -1256,9 +1311,10 @@ static int rk817_fg_init(struct rk817_battery_device *battery)
 
 	value = rk817_bat_read(battery, GG_CON);
 	rk817_bat_write(battery, GG_CON, value | VOL_OUPUT_INSTANT_MODE);
-	value =  rk817_bat_read(battery, BAT_DISCHRG);
-	rk817_bat_write(battery, GG_CON, value & (~DIS_ILIM_EN));
-
+	if (battery->variant == RK817_ID) {
+		value =  rk817_bat_read(battery, BAT_DISCHRG);
+		rk817_bat_write(battery, BAT_DISCHRG, value & (~DIS_ILIM_EN));
+	}
 	rk817_bat_gas_gaugle_enable(battery);
 	rk817_bat_init_voltage_kb(battery);
 	rk817_bat_calibration(battery);
@@ -1282,7 +1338,8 @@ static int rk817_fg_init(struct rk817_battery_device *battery)
 	battery->dbg_pwr_rsoc = battery->rsoc;
 	battery->dbg_pwr_vol = battery->voltage_avg;
 
-	rk817_bat_charger_setting(battery, battery->chrg_type);
+	if (battery->variant == RK817_ID)
+		rk817_bat_charger_setting(battery, battery->chrg_type);
 
 	DBG("voltage_k = %d, voltage_b = %d\n",
 	    battery->voltage_k, battery->voltage_b);
@@ -1306,7 +1363,7 @@ static int rk817_fg_probe(struct udevice *dev)
 	struct rk8xx_priv *priv = dev_get_priv(dev->parent);
 	struct rk817_battery_device *battery = dev_get_priv(dev);
 
-	if (priv->variant != 0x8170) {
+	if ((priv->variant != RK817_ID) && ((priv->variant != RK809_ID))) {
 		debug("Not support pmic variant: rk%x\n", priv->variant);
 		return -EINVAL;
 	}

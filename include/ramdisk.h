@@ -45,9 +45,6 @@ struct ramdisk_ops {
 	ulong (*erase)(struct blk_desc *desc, lbaint_t start, lbaint_t blkcnt);
 };
 
-/*
- * bramdisk_initialize() - do blk ramdisk initialize
- */
-int bramdisk_initialize(void);
+int dm_ramdisk_is_enabled(void);
 
 #endif /* __RAMDISK_H__ */

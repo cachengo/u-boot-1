@@ -11,9 +11,25 @@
 #include <drm_modes.h>
 #include <edid.h>
 #include <dm/ofnode.h>
+#include <drm/drm_dsc.h>
 
-#define ROCKCHIP_OUTPUT_DSI_DUAL_CHANNEL	BIT(0)
-#define ROCKCHIP_OUTPUT_DSI_DUAL_LINK		BIT(1)
+/*
+ * major: IP major vertion, used for IP structure
+ * minor: big feature change under same structure
+ */
+#define VOP_VERSION(major, minor)	((major) << 8 | (minor))
+#define VOP_MAJOR(version)		((version) >> 8)
+#define VOP_MINOR(version)		((version) & 0xff)
+
+#define VOP_VERSION_RK3568		VOP_VERSION(0x40, 0x15)
+#define VOP_VERSION_RK3588		VOP_VERSION(0x40, 0x17)
+
+#define ROCKCHIP_OUTPUT_DUAL_CHANNEL_LEFT_RIGHT_MODE	BIT(0)
+#define ROCKCHIP_OUTPUT_DUAL_CHANNEL_ODD_EVEN_MODE	BIT(1)
+#define ROCKCHIP_OUTPUT_DATA_SWAP			BIT(2)
+#define ROCKCHIP_OUTPUT_MIPI_DS_MODE			BIT(3)
+
+#define ROCKCHIP_DSC_PPS_SIZE_BYTE			88
 
 enum data_format {
 	ROCKCHIP_FMT_ARGB8888 = 0,
@@ -44,14 +60,30 @@ enum rockchip_mcu_cmd {
 /*
  * display output interface supported by rockchip lcdc
  */
-#define ROCKCHIP_OUT_MODE_P888	0
-#define ROCKCHIP_OUT_MODE_P666	1
-#define ROCKCHIP_OUT_MODE_P565	2
+#define ROCKCHIP_OUT_MODE_P888		0
+#define ROCKCHIP_OUT_MODE_BT1120	0
+#define ROCKCHIP_OUT_MODE_P666		1
+#define ROCKCHIP_OUT_MODE_P565		2
+#define ROCKCHIP_OUT_MODE_BT656		5
 #define ROCKCHIP_OUT_MODE_S888		8
 #define ROCKCHIP_OUT_MODE_S888_DUMMY	12
 #define ROCKCHIP_OUT_MODE_YUV420	14
 /* for use special outface */
-#define ROCKCHIP_OUT_MODE_AAAA	15
+#define ROCKCHIP_OUT_MODE_AAAA		15
+
+#define VOP_OUTPUT_IF_RGB	BIT(0)
+#define VOP_OUTPUT_IF_BT1120	BIT(1)
+#define VOP_OUTPUT_IF_BT656	BIT(2)
+#define VOP_OUTPUT_IF_LVDS0	BIT(3)
+#define VOP_OUTPUT_IF_LVDS1	BIT(4)
+#define VOP_OUTPUT_IF_MIPI0	BIT(5)
+#define VOP_OUTPUT_IF_MIPI1	BIT(6)
+#define VOP_OUTPUT_IF_eDP0	BIT(7)
+#define VOP_OUTPUT_IF_eDP1	BIT(8)
+#define VOP_OUTPUT_IF_DP0	BIT(9)
+#define VOP_OUTPUT_IF_DP1	BIT(10)
+#define VOP_OUTPUT_IF_HDMI0	BIT(11)
+#define VOP_OUTPUT_IF_HDMI1	BIT(12)
 
 struct rockchip_mcu_timing {
 	int mcu_pix_total;
@@ -62,11 +94,53 @@ struct rockchip_mcu_timing {
 	int mcu_hold_mode;
 };
 
+struct vop_rect {
+	int width;
+	int height;
+};
+
+struct rockchip_dsc_sink_cap {
+	/**
+	 * @slice_width: the number of pixel columns that comprise the slice width
+	 * @slice_height: the number of pixel rows that comprise the slice height
+	 * @block_pred: Does block prediction
+	 * @native_420: Does sink support DSC with 4:2:0 compression
+	 * @bpc_supported: compressed bpc supported by sink : 10, 12 or 16 bpc
+	 * @version_major: DSC major version
+	 * @version_minor: DSC minor version
+	 * @target_bits_per_pixel_x16: bits num after compress and multiply 16
+	 */
+	u16 slice_width;
+	u16 slice_height;
+	bool block_pred;
+	bool native_420;
+	u8 bpc_supported;
+	u8 version_major;
+	u8 version_minor;
+	u16 target_bits_per_pixel_x16;
+};
+
+struct display_rect {
+	int x;
+	int y;
+	int w;
+	int h;
+};
+
+struct bcsh_state {
+	int brightness;
+	int contrast;
+	int saturation;
+	int sin_hue;
+	int cos_hue;
+};
+
 struct crtc_state {
 	struct udevice *dev;
 	struct rockchip_crtc *crtc;
 	void *private;
 	ofnode node;
+	struct device_node *ports_node; /* if (ports_node) it's vop2; */
 	int crtc_id;
 
 	int format;
@@ -74,25 +148,37 @@ struct crtc_state {
 	int ymirror;
 	int rb_swap;
 	int xvir;
-	int src_x;
-	int src_y;
-	int src_w;
-	int src_h;
-	int crtc_x;
-	int crtc_y;
-	int crtc_w;
-	int crtc_h;
+	int post_csc_mode;
+	struct display_rect src_rect;
+	struct display_rect crtc_rect;
+	struct display_rect right_src_rect;
+	struct display_rect right_crtc_rect;
 	bool yuv_overlay;
+	bool post_r2y_en;
+	bool post_y2r_en;
+	bool bcsh_en;
+	bool splice_mode;
+	u8 splice_crtc_id;
+	u8 dsc_id;
+	u8 dsc_enable;
+	u8 dsc_slice_num;
+	u8 dsc_pixel_num;
 	struct rockchip_mcu_timing mcu_timing;
+	u32 dual_channel_swap;
+	u32 feature;
+	struct vop_rect max_output;
+
+	u64 dsc_txp_clk_rate;
+	u64 dsc_pxl_clk_rate;
+	u64 dsc_cds_clk_rate;
+	struct drm_dsc_picture_parameter_set pps;
+	struct rockchip_dsc_sink_cap dsc_sink_cap;
 };
 
 struct panel_state {
-	struct udevice *dev;
-	ofnode node;
-	ofnode dsp_lut_node;
+	struct rockchip_panel *panel;
 
-	const struct rockchip_panel *panel;
-	void *private;
+	ofnode dsp_lut_node;
 };
 
 struct overscan {
@@ -105,13 +191,11 @@ struct overscan {
 struct connector_state {
 	struct udevice *dev;
 	const struct rockchip_connector *connector;
-	struct udevice *phy_dev;
-	const struct rockchip_phy *phy;
+	struct rockchip_bridge *bridge;
+	struct rockchip_phy *phy;
 	ofnode node;
-	ofnode phy_node;
 
 	void *private;
-	void *phy_private;
 
 	struct drm_display_mode mode;
 	struct overscan overscan;
@@ -119,8 +203,29 @@ struct connector_state {
 	int bus_format;
 	int output_mode;
 	int type;
-	int output_type;
+	int output_if;
+	int output_flags;
 	int color_space;
+	unsigned int bpc;
+
+	/**
+	 * @hold_mode: enabled when it's:
+	 * (1) mcu hold mode
+	 * (2) mipi dsi cmd mode
+	 * (3) edp psr mode
+	 */
+	bool hold_mode;
+
+	struct base2_disp_info *disp_info; /* disp_info from baseparameter 2.0 */
+
+	u8 dsc_id;
+	u8 dsc_slice_num;
+	u8 dsc_pixel_num;
+	u64 dsc_txp_clk;
+	u64 dsc_pxl_clk;
+	u64 dsc_cds_clk;
+	struct rockchip_dsc_sink_cap dsc_sink_cap;
+	struct drm_dsc_picture_parameter_set pps;
 
 	struct {
 		u32 *lut;
@@ -134,7 +239,7 @@ struct logo_info {
 	bool ymirror;
 	u32 offset;
 	u32 width;
-	u32 height;
+	int height;
 	u32 bpp;
 };
 
@@ -166,11 +271,27 @@ struct display_state {
 	int enable;
 	int is_init;
 	int is_enable;
+	bool force_output;
+	struct drm_display_mode force_mode;
+	u32 force_bus_format;
 };
+
+static inline struct rockchip_panel *state_get_panel(struct display_state *s)
+{
+	struct panel_state *panel_state = &s->panel_state;
+
+	return panel_state->panel;
+}
 
 int drm_mode_vrefresh(const struct drm_display_mode *mode);
 int display_send_mcu_cmd(struct display_state *state, u32 type, u32 val);
 bool drm_mode_is_420(const struct drm_display_info *display,
 		     struct drm_display_mode *mode);
+struct base2_disp_info *rockchip_get_disp_info(int type, int id);
+
+void drm_mode_max_resolution_filter(struct hdmi_edid_data *edid_data,
+				    struct vop_rect *max_output);
+unsigned long get_cubic_lut_buffer(int crtc_id);
+int rockchip_ofnode_get_display_mode(ofnode node, struct drm_display_mode *mode);
 
 #endif

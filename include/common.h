@@ -37,6 +37,7 @@ typedef volatile unsigned char	vu_char;
 #include <part.h>
 #include <flash.h>
 #include <image.h>
+#include <stacktrace.h>
 
 /* Bring in printf format macros if inttypes.h is included */
 #define __STDC_FORMAT_MACROS
@@ -52,7 +53,7 @@ typedef volatile unsigned char	vu_char;
 # define static_assert _Static_assert
 #endif
 
-#ifndef CONFIG_IRQ
+#if !CONFIG_IS_ENABLED(IRQ)
 typedef void (interrupt_handler_t)(void *);
 #else
 typedef void (interrupt_handler_t)(int, void *);
@@ -102,6 +103,7 @@ int	cpu_init(void);
 
 /* common/main.c */
 void	main_loop	(void);
+void autoboot_command_fail_handle(void);
 int run_command(const char *cmd, int flag);
 int run_command_repeatable(const char *cmd, int flag);
 
@@ -143,6 +145,11 @@ ulong board_init_f_alloc_reserve(ulong top);
  * @base:	top from which reservation was done
  */
 void board_init_f_init_reserve(ulong base);
+
+/*
+ * Board-specific Platform code can init serial earlier if needed
+ */
+__weak int board_init_f_boot_flags(void);
 
 /**
  * arch_setup_gd() - Set up the global_data pointer
@@ -343,6 +350,20 @@ int env_update_filter(const char *varname, const char *varvalue,
 		      const char *ignore);
 
 /**
+ * env_update_extract_subset() - extract subset value from an environment variable
+ *
+ * This extract subset value from an environment variable
+ *
+ * @varname: Parent Variable where to extract subset value, the subset value
+ *	     will be removed from it.
+ * @subset_varname: Variable to save subset value
+ * @subset_key: Key value to find out subset value
+ * @return 0 if OK, 1 on error
+ */
+int env_update_extract_subset(const char *varname,
+			      const char *subset_varname,
+			      const char *subset_key);
+/**
  * env_update() - update sub value of an environment variable
  *
  * This add/append/replace the sub value of an environment variable.
@@ -446,19 +467,11 @@ int  eeprom_write (unsigned dev_addr, unsigned offset, uchar *buffer, unsigned c
 #define eeprom_write(dev_addr, offset, buffer, cnt) ((void)-ENOSYS)
 #endif
 
-/*
- * Set this up regardless of board
- * type, to prevent errors.
- */
-#if defined(CONFIG_SPI) || !defined(CONFIG_SYS_I2C_EEPROM_ADDR)
-# define CONFIG_SYS_DEF_EEPROM_ADDR 0
-#else
-#if !defined(CONFIG_ENV_EEPROM_IS_ON_I2C)
+#if !defined(CONFIG_ENV_EEPROM_IS_ON_I2C) && defined(CONFIG_SYS_I2C_EEPROM_ADDR)
 # define CONFIG_SYS_DEF_EEPROM_ADDR CONFIG_SYS_I2C_EEPROM_ADDR
 #endif
-#endif /* CONFIG_SPI || !defined(CONFIG_SYS_I2C_EEPROM_ADDR) */
 
-#if defined(CONFIG_SPI)
+#if defined(CONFIG_MPC8XX_SPI)
 extern void spi_init_f (void);
 extern void spi_init_r (void);
 extern ssize_t spi_read	 (uchar *, int, uchar *, int);
@@ -472,6 +485,7 @@ int board_late_init (void);
 int board_postclk_init (void); /* after clocks/timebase, before env/serial */
 int board_early_init_r (void);
 void board_poweroff (void);
+void board_env_fixup(void);
 
 #if defined(CONFIG_SYS_DRAM_TEST)
 int testdram(void);
@@ -523,6 +537,8 @@ int	is_core_valid (unsigned int);
  */
 int arch_cpu_init(void);
 
+int arch_fpga_init(void);
+
 void s_init(void);
 
 int	checkcpu      (void);
@@ -542,6 +558,7 @@ void smp_kick_all_cpus(void);
 int	serial_init   (void);
 void	serial_setbrg (void);
 void	serial_putc   (const char);
+void	serial_clear  (void);
 void	serial_putc_raw(const char);
 void	serial_puts   (const char *);
 int	serial_getc   (void);
@@ -664,9 +681,7 @@ int gzwrite(unsigned char *src, int len,
 	    u64 startoffs,
 	    u64 szexpected);
 
-/* lib/lz4_wrapper.c */
-bool lz4_is_valid_header(const unsigned char *h);
-int ulz4fn(const void *src, size_t srcn, void *dst, size_t *dstn);
+#include <u-boot/lz4.h>
 
 /* lib/qsort.c */
 void qsort(void *base, size_t nmemb, size_t size,

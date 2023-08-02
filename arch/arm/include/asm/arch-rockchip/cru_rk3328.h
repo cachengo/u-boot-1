@@ -14,6 +14,11 @@ struct rk3328_clk_priv {
 	ulong rate;
 	ulong cpll_hz;
 	ulong gpll_hz;
+	ulong armclk_hz;
+	ulong armclk_enter_hz;
+	ulong armclk_init_hz;
+	bool sync_kernel;
+	bool set_armclk_rate;
 };
 
 struct rk3328_cru {
@@ -104,6 +109,14 @@ enum {
 	CORE_DBG_DIV_SHIFT		= 0,
 	CORE_DBG_DIV_MASK		= 0x0f << CORE_DBG_DIV_SHIFT,
 
+	/* CLKSEL_CON26 */
+	GMAC2PHY_PLL_SEL_SHIFT          = 7,
+	GMAC2PHY_PLL_SEL_MASK           = 1 << GMAC2PHY_PLL_SEL_SHIFT,
+	GMAC2PHY_PLL_SEL_CPLL           = 0,
+	GMAC2PHY_PLL_SEL_GPLL           = 1,
+	GMAC2PHY_CLK_DIV_MASK           = 0x1f,
+	GMAC2PHY_CLK_DIV_SHIFT          = 0,
+
 	/* CLKSEL_CON27 */
 	GMAC2IO_PLL_SEL_SHIFT		= 7,
 	GMAC2IO_PLL_SEL_MASK		= 1 << GMAC2IO_PLL_SEL_SHIFT,
@@ -126,6 +139,14 @@ enum {
 	PCLK_PERI_DIV_CON_MASK		= 0x7 << PCLK_PERI_DIV_CON_SHIFT,
 	HCLK_PERI_DIV_CON_SHIFT		= 0,
 	HCLK_PERI_DIV_CON_MASK		= 3 << HCLK_PERI_DIV_CON_SHIFT,
+
+	/* CLKSEL_CON20 */
+	CRYPTO_PLL_SEL_SHIFT		= 7,
+	CRYPTO_PLL_SEL_MASK		= 0x1 << CRYPTO_PLL_SEL_SHIFT,
+	CRYPTO_PLL_SEL_CPLL		= 0,
+	CRYPTO_PLL_SEL_GPLL,
+	CRYPTO_DIV_SHIFT		= 0,
+	CRYPTO_DIV_MASK			= 0x7f << CRYPTO_DIV_SHIFT,
 
 	/* CLKSEL_CON22 */
 	CLK_TSADC_DIV_CON_SHIFT		= 0,

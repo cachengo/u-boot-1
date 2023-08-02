@@ -10,12 +10,28 @@
 #include <dt-bindings/input/input.h>
 
 / {
-	model = "Rockchip RK3399 Evaluation Board";
+	model = "Rockchip RK3368 Evaluation Board";
 	compatible = "rockchip,rk3368-evb", "rockchip,rk3368";
 
-	chosen {
-		stdout-path = "serial2:115200n8";
+	adc-keys {
+		compatible = "adc-keys";
+		io-channels = <&saradc 1>;
+		io-channel-names = "buttons";
+		keyup-threshold-microvolt = <1024000>;
+		u-boot,dm-pre-reloc;
+		status = "okay";
+
+		volumeup-key {
+			label = "volume up";
+			u-boot,dm-pre-reloc;
+			linux,code = <KEY_VOLUMEUP>;
+			press-threshold-microvolt = <1000>;
+		};
 	};
+};
+
+&crypto {
+	status = "okay";
 };
 
 &emmc {
@@ -37,10 +53,6 @@
 
 &u2phy {
 	status = "okay";
-
-	u2phy_host: host-port {
-		status = "okay";
-	};
 };
 
 &usb_host0_ehci {
@@ -48,6 +60,14 @@
 };
 
 &usb_host0_ohci {
+	status = "okay";
+};
+
+&u2phy_host {
+	status = "okay";
+};
+
+&u2phy_otg {
 	status = "okay";
 };
 

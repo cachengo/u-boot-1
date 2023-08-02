@@ -48,6 +48,7 @@
 #define DWMCI_IDINTEN		0x090
 #define DWMCI_DSCADDR		0x094
 #define DWMCI_BUFADDR		0x098
+#define DWMCI_CARDTHRCTL	0x100
 #define DWMCI_DATA		0x200
 
 /* Interrupt Mask register */
@@ -134,6 +135,18 @@
 
 /* quirks */
 #define DWMCI_QUIRK_DISABLE_SMU		(1 << 0)
+
+/*
+ * DWMCI_MSIZE is uses to set burst size of multiple transaction.
+ * The burst size is set to 128 if DWMCI_MSIZE is set to 0x6.
+ */
+#define DWMCI_MSIZE    0x6
+
+/* The DW MMC Controller Version */
+#define DW_MMC_240A		0x240a
+
+/* sdmmc cardthrctl set */
+#define DWMCI_CDTHRCTRL_CONFIG (1 + (0x200 << 16))
 
 /**
  * struct dwmci_host - Information about a designware MMC host

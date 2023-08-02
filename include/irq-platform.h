@@ -19,6 +19,7 @@
 #define GPIO_BANK_NUM			4
 #define GPIO_BANK_PINS			32
 
+#define IRQ_USB_OTG			42
 #define IRQ_TIMER1			61
 #define IRQ_GPIO0			68
 #define IRQ_GPIO1			69
@@ -37,6 +38,7 @@
 #define GPIO_BANK_NUM			4
 #define GPIO_BANK_PINS			32
 
+#define IRQ_USB_OTG			55
 #define IRQ_TIMER1			76
 #define IRQ_PWM				82
 #define IRQ_GPIO0			83
@@ -61,6 +63,7 @@
 #define GPIO_BANK_NUM			9
 #define GPIO_BANK_PINS			32
 
+#define IRQ_USB_OTG			55
 #define IRQ_TIMER1			99
 #define IRQ_PWM				110
 #define IRQ_GPIO0			113
@@ -104,7 +107,8 @@
 #define GPIO_BANK_NUM			4
 #define GPIO_BANK_PINS			32
 
-#define IRQ_TIMER1			79
+#define IRQ_TIMER0			98
+#define IRQ_TIMER1			99
 #define IRQ_PWM				110
 #define IRQ_GPIO0			113
 #define IRQ_GPIO1			114
@@ -153,6 +157,129 @@
 #define GPIO_BANK_NUM			4
 #define GPIO_BANK_PINS			32
 
+#elif defined(CONFIG_ROCKCHIP_RK3308)
+#define GPIO0_PHYS			0xff220000
+#define GPIO1_PHYS			0xff230000
+#define GPIO2_PHYS			0xff240000
+#define GPIO3_PHYS			0xff250000
+#define GPIO4_PHYS			0xff260000
+
+#define IRQ_TIMER1			58	/* ch0 ns timer1 */
+#define IRQ_GPIO0			72
+#define IRQ_GPIO1			73
+#define IRQ_GPIO2			74
+#define IRQ_GPIO3			75
+#define IRQ_GPIO4			76
+
+#define GIC_IRQS_NR			(5 * 32)
+#define GPIO_IRQS_NR			(5 * 32)
+
+#define GPIO_BANK_NUM			5
+#define GPIO_BANK_PINS			32
+
+#elif defined(CONFIG_ROCKCHIP_RK1808)
+#define GPIO0_PHYS			0xff4c0000
+#define GPIO1_PHYS			0xff690000
+#define GPIO2_PHYS			0xff6a0000
+#define GPIO3_PHYS			0xff6b0000
+#define GPIO4_PHYS			0xff6c0000
+
+#define IRQ_GPIO0			35
+#define IRQ_GPIO1			36
+#define IRQ_GPIO2			37
+#define IRQ_GPIO3			38
+#define IRQ_GPIO4			114
+
+#define IRQ_TIMER0			58
+#define IRQ_TIMER1			59
+
+#define GIC_IRQS_NR			(5 * 32)
+#define GPIO_IRQS_NR			(5 * 32)
+
+#define GPIO_BANK_NUM			5
+#define GPIO_BANK_PINS			32
+
+#elif defined(CONFIG_ROCKCHIP_RV1106)
+#define GPIO0_PHYS			0xff460000
+#define GPIO1_PHYS			0xff620000
+#define GPIO2_PHYS			0xff630000
+#define GPIO3_PHYS			0xff640000
+#define GPIO4_PHYS			0xff650000
+
+#define GIC_IRQS_NR			(5 * 32)
+#define GPIO_IRQS_NR			(5 * 32)
+
+#define GPIO_BANK_NUM			5
+#define GPIO_BANK_PINS			32
+
+#define IRQ_USB_OTG			117
+#define IRQ_TIMER1			57
+#define IRQ_GPIO0			66
+#define IRQ_GPIO1			67
+#define IRQ_GPIO2			68
+#define IRQ_GPIO3			69
+#define IRQ_GPIO4			70
+
+#elif defined(CONFIG_ROCKCHIP_RV1126)
+#define GPIO0_PHYS			0xff460000
+#define GPIO1_PHYS			0xff620000
+#define GPIO2_PHYS			0xff630000
+#define GPIO3_PHYS			0xff640000
+#define GPIO4_PHYS			0xff650000
+
+#define GIC_IRQS_NR			(5 * 32)
+#define GPIO_IRQS_NR			(5 * 32)
+
+#define GPIO_BANK_NUM			5
+#define GPIO_BANK_PINS			32
+
+#define IRQ_USB_OTG			117
+#define IRQ_TIMER1			57
+#define IRQ_GPIO0			66
+#define IRQ_GPIO1			67
+#define IRQ_GPIO2			68
+#define IRQ_GPIO3			69
+#define IRQ_GPIO4			70
+
+#elif defined(CONFIG_ROCKCHIP_RK3568)
+#define GPIO0_PHYS			0xfdd60000
+#define GPIO1_PHYS			0xfe740000
+#define GPIO2_PHYS			0xfe750000
+#define GPIO3_PHYS			0xfe760000
+#define GPIO4_PHYS			0xfe770000
+
+#define GIC_IRQS_NR			(5 * 32)
+#define GPIO_IRQS_NR			(5 * 32)
+
+#define GPIO_BANK_NUM			5
+#define GPIO_BANK_PINS			32
+
+#define IRQ_TIMER0			141
+#define IRQ_GPIO0			65
+#define IRQ_GPIO1			66
+#define IRQ_GPIO2			67
+#define IRQ_GPIO3			68
+#define IRQ_GPIO4			69
+
+#elif defined(CONFIG_ROCKCHIP_RK3588)
+#define GPIO0_PHYS			0xfd8a0000
+#define GPIO1_PHYS			0xfec20000
+#define GPIO2_PHYS			0xfec30000
+#define GPIO3_PHYS			0xfec40000
+#define GPIO4_PHYS			0xfec50000
+
+#define GIC_IRQS_NR			(455)
+#define GPIO_IRQS_NR			(5 * 32)
+
+#define GPIO_BANK_NUM			5
+#define GPIO_BANK_PINS			32
+
+#define IRQ_TIMER0			321
+#define IRQ_GPIO0			309
+#define IRQ_GPIO1			310
+#define IRQ_GPIO2			311
+#define IRQ_GPIO3			312
+#define IRQ_GPIO4			313
 #else
 "Missing define RIQ relative things"
 #endif

@@ -8,7 +8,7 @@
 #include <common.h>
 #include <dm.h>
 #include <errno.h>
-#include <libfdt.h>
+#include <linux/libfdt.h>
 #include <malloc.h>
 #include <mapmem.h>
 #include <regmap.h>
@@ -144,4 +144,18 @@ int regmap_write(struct regmap *map, uint offset, uint val)
 	writel(cpu_to_le32(val), ptr);
 
 	return 0;
+}
+
+int regmap_update_bits(struct regmap *map, uint offset, uint mask, uint val)
+{
+	uint reg;
+	int ret;
+
+	ret = regmap_read(map, offset, &reg);
+	if (ret)
+		return ret;
+
+	reg &= ~mask;
+
+	return regmap_write(map, offset, reg | val);
 }

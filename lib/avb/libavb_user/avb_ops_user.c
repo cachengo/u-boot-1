@@ -32,6 +32,7 @@
 #include <mmc.h>
 #include <blk.h>
 #include <part.h>
+#include <stdio.h>
 #include <android_avb/avb_ops_user.h>
 #include <android_avb/libavb_ab.h>
 #include <android_avb/avb_atx_validate.h>
@@ -67,6 +68,27 @@ static void byte_to_block(int64_t *offset,
 	}
 }
 
+static AvbIOResult get_size_of_partition(AvbOps *ops,
+					 const char *partition,
+					 uint64_t *out_size_in_bytes)
+{
+	struct blk_desc *dev_desc;
+	disk_partition_t part_info;
+
+	dev_desc = rockchip_get_bootdev();
+	if (!dev_desc) {
+		printf("%s: Could not find device\n", __func__);
+		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
+	}
+
+	if (part_get_info_by_name(dev_desc, partition, &part_info) < 0) {
+		printf("Could not find \"%s\" partition\n", partition);
+		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
+	}
+	*out_size_in_bytes = (part_info.size) * 512;
+	return AVB_IO_RESULT_OK;
+}
+
 static AvbIOResult read_from_partition(AvbOps *ops,
 				       const char *partition,
 				       int64_t offset,
@@ -77,6 +99,17 @@ static AvbIOResult read_from_partition(AvbOps *ops,
 	struct blk_desc *dev_desc;
 	lbaint_t offset_blk, blkcnt;
 	disk_partition_t part_info;
+	uint64_t partition_size;
+
+	if (offset < 0) {
+		if (get_size_of_partition(ops, partition, &partition_size))
+			return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
+
+		if (-offset > partition_size)
+			return AVB_IO_RESULT_ERROR_RANGE_OUTSIDE_PARTITION;
+
+		offset = partition_size - (-offset);
+	}
 
 	byte_to_block(&offset, &num_bytes, &offset_blk, &blkcnt);
 	dev_desc = rockchip_get_bootdev();
@@ -160,7 +193,9 @@ validate_vbmeta_public_key(AvbOps *ops,
 			   size_t public_key_metadata_length,
 			   bool *out_is_trusted)
 {
-#ifdef AVB_VBMETA_PUBLIC_KEY_VALIDATE
+/* remain AVB_VBMETA_PUBLIC_KEY_VALIDATE to compatible legacy code */
+#if defined(CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE) || \
+    defined(AVB_VBMETA_PUBLIC_KEY_VALIDATE)
 	if (out_is_trusted) {
 		avb_atx_validate_vbmeta_public_key(ops,
 						   public_key_data,
@@ -217,8 +252,13 @@ static AvbIOResult read_rollback_index(AvbOps *ops,
 		}
 
 		return ret;
+#else
+		*out_rollback_index = 0;
+
+		return AVB_IO_RESULT_OK;
 #endif
 	}
+
 	return AVB_IO_RESULT_ERROR_IO;
 }
 
@@ -269,6 +309,10 @@ static AvbIOResult read_is_device_unlocked(AvbOps *ops, bool *out_is_unlocked)
 			printf("%s: trusty_read_lock_state failed\n", __FILE__);
 		}
 		return ret;
+#else
+		*out_is_unlocked = 1;
+
+		return AVB_IO_RESULT_OK;
 #endif
 	}
 	return AVB_IO_RESULT_ERROR_IO;
@@ -286,27 +330,6 @@ static AvbIOResult write_is_device_unlocked(AvbOps *ops, bool *out_is_unlocked)
 #endif
 	}
 	return AVB_IO_RESULT_ERROR_IO;
-}
-
-static AvbIOResult get_size_of_partition(AvbOps *ops,
-					 const char *partition,
-					 uint64_t *out_size_in_bytes)
-{
-	struct blk_desc *dev_desc;
-	disk_partition_t part_info;
-
-	dev_desc = rockchip_get_bootdev();
-	if (!dev_desc) {
-		printf("%s: Could not find device\n", __func__);
-		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
-	}
-
-	if (part_get_info_by_name(dev_desc, partition, &part_info) < 0) {
-		printf("Could not find \"%s\" partition\n", partition);
-		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
-	}
-	*out_size_in_bytes = (part_info.size) * 512;
-	return AVB_IO_RESULT_OK;
 }
 
 static AvbIOResult get_unique_guid_for_partition(AvbOps *ops,
@@ -352,6 +375,7 @@ AvbIOResult avb_read_perm_attr(AvbAtxOps *atx_ops,
 AvbIOResult avb_read_perm_attr_hash(AvbAtxOps *atx_ops,
 				    uint8_t hash[AVB_SHA256_DIGEST_SIZE])
 {
+#ifndef CONFIG_ROCKCHIP_PRELOADER_PUB_KEY
 #ifdef CONFIG_OPTEE_CLIENT
 	if (trusty_read_attribute_hash((uint32_t *)hash,
 				       AVB_SHA256_DIGEST_SIZE / 4))
@@ -359,6 +383,7 @@ AvbIOResult avb_read_perm_attr_hash(AvbAtxOps *atx_ops,
 #else
 	avb_error("Please open the macro!\n");
 	return -1;
+#endif
 #endif
 	return AVB_IO_RESULT_OK;
 }
@@ -368,6 +393,12 @@ static void avb_set_key_version(AvbAtxOps *atx_ops,
 				uint64_t key_version)
 {
 #ifdef CONFIG_OPTEE_CLIENT
+	uint64_t key_version_temp = 0;
+
+	if (trusty_read_rollback_index(rollback_index_location, &key_version_temp))
+		printf("%s: Fail to read rollback index\n", __FILE__);
+	if (key_version_temp == key_version)
+		return;
 	if (trusty_write_rollback_index(rollback_index_location, key_version))
 		printf("%s: Fail to write rollback index\n", __FILE__);
 #endif
@@ -390,25 +421,91 @@ AvbIOResult rk_get_random(AvbAtxOps *atx_ops,
 	return 0;
 }
 
+#ifdef CONFIG_ANDROID_BOOT_IMAGE
+static AvbIOResult get_preloaded_partition(AvbOps* ops,
+					   const char* partition,
+					   size_t num_bytes,
+					   uint8_t** out_pointer,
+					   size_t* out_num_bytes_preloaded,
+					   int allow_verification_error)
+{
+	struct blk_desc *dev_desc;
+	ulong load_addr;
+	int ret;
+
+	/* no need go further */
+	if (!allow_verification_error)
+		return AVB_IO_RESULT_OK;
+
+	printf("get image from preloaded partition...\n");
+	dev_desc = rockchip_get_bootdev();
+	if (!dev_desc)
+	    return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
+
+	load_addr = env_get_ulong("kernel_addr_r", 16, 0);
+	if (!load_addr)
+		return AVB_IO_RESULT_ERROR_NO_SUCH_VALUE;
+
+	ret = android_image_load_by_partname(dev_desc, partition, &load_addr);
+	if (!ret) {
+		*out_pointer = (u8 *)load_addr;
+		*out_num_bytes_preloaded = num_bytes; /* return what it expects */
+		ret = AVB_IO_RESULT_OK;
+	} else {
+		ret = AVB_IO_RESULT_ERROR_IO;
+	}
+
+	return ret;
+}
+#endif
+
+AvbIOResult validate_public_key_for_partition(AvbOps *ops,
+					      const char *partition,
+					      const uint8_t *public_key_data,
+					      size_t public_key_length,
+					      const uint8_t *public_key_metadata,
+					      size_t public_key_metadata_length,
+					      bool *out_is_trusted,
+					      uint32_t *out_rollback_index_location)
+{
+/* remain AVB_VBMETA_PUBLIC_KEY_VALIDATE to compatible legacy code */
+#if defined(CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE) || \
+    defined(AVB_VBMETA_PUBLIC_KEY_VALIDATE)
+	if (out_is_trusted) {
+		avb_atx_validate_vbmeta_public_key(ops,
+						   public_key_data,
+						   public_key_length,
+						   public_key_metadata,
+						   public_key_metadata_length,
+						   out_is_trusted);
+	}
+#else
+	if (out_is_trusted)
+		*out_is_trusted = true;
+#endif
+	*out_rollback_index_location = 0;
+	return AVB_IO_RESULT_OK;
+}
+
 AvbOps *avb_ops_user_new(void)
 {
 	AvbOps *ops;
 
 	ops = calloc(1, sizeof(AvbOps));
 	if (!ops) {
-		avb_error("Error allocating memory for AvbOps.\n");
+		printf("Error allocating memory for AvbOps.\n");
 		goto out;
 	}
 	ops->ab_ops = calloc(1, sizeof(AvbABOps));
 	if (!ops->ab_ops) {
-		avb_error("Error allocating memory for AvbABOps.\n");
+		printf("Error allocating memory for AvbABOps.\n");
 		free(ops);
 		goto out;
 	}
 
 	ops->atx_ops = calloc(1, sizeof(AvbAtxOps));
 	if (!ops->atx_ops) {
-		avb_error("Error allocating memory for AvbAtxOps.\n");
+		printf("Error allocating memory for AvbAtxOps.\n");
 		free(ops->ab_ops);
 		free(ops);
 		goto out;
@@ -425,6 +522,10 @@ AvbOps *avb_ops_user_new(void)
 	ops->write_is_device_unlocked = write_is_device_unlocked;
 	ops->get_unique_guid_for_partition = get_unique_guid_for_partition;
 	ops->get_size_of_partition = get_size_of_partition;
+#ifdef CONFIG_ANDROID_BOOT_IMAGE
+	ops->get_preloaded_partition = get_preloaded_partition;
+#endif
+	ops->validate_public_key_for_partition = validate_public_key_for_partition;
 	ops->ab_ops->read_ab_metadata = avb_ab_data_read;
 	ops->ab_ops->write_ab_metadata = avb_ab_data_write;
 	ops->atx_ops->read_permanent_attributes = avb_read_perm_attr;

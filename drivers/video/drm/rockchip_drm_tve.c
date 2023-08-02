@@ -205,6 +205,15 @@ static u8 rk_get_vdac_value(void)
 	return value;
 }
 
+static int rockchip_drm_tve_pre_init(struct display_state *state)
+{
+	struct connector_state *conn_state = &state->conn_state;
+
+	conn_state->type = DRM_MODE_CONNECTOR_TV;
+
+	return 0;
+}
+
 static int rockchip_drm_tve_init(struct display_state *state)
 {
 	struct connector_state *conn_state = &state->conn_state;
@@ -212,7 +221,6 @@ static int rockchip_drm_tve_init(struct display_state *state)
 	int dac_value, getvdac;
 	fdt_addr_t addr;
 
-	conn_state->type = DRM_MODE_CONNECTOR_TV;
 	tve_s.grf = syscon_get_first_range(ROCKCHIP_SYSCON_GRF);
 	if (tve_s.grf <= 0) {
 		printf("%s:Get syscon grf failed (ret=%p)\n",
@@ -287,7 +295,7 @@ static int rockchip_drm_tve_init(struct display_state *state)
 	}
 #endif
 
-	if (!fdt_device_is_available(gd->fdt_blob, node)) {
+	if (!fdtdec_get_is_enabled(gd->fdt_blob, node)) {
 		printf("tve is disabled\n");
 		goto err;
 	}
@@ -403,7 +411,7 @@ static int rockchip_drm_tve_enable(struct display_state *state)
 
 #ifdef CONFIG_ROCKCHIP_INNO_HDMI_PHY
 	/* set inno hdmi phy clk. */
-	rockchip_phy_set_pll(state, 27000000);
+	rockchip_phy_set_pll(conn_state->phy, 27000000);
 #endif
 	if (mode->vdisplay == 576)
 		tve_type = TVOUT_CVBS_PAL;
@@ -551,6 +559,7 @@ static int rockchip_drm_tve_probe(struct udevice *dev)
 }
 
 const struct rockchip_connector_funcs rockchip_drm_tve_funcs = {
+	.pre_init = rockchip_drm_tve_pre_init,
 	.init = rockchip_drm_tve_init,
 	.deinit = rockchip_drm_tve_deinit,
 	.prepare = rockchip_drm_tve_prepare,

@@ -17,12 +17,12 @@
  #define DRM_ROCKCHIP_FB_BPP		VIDEO_BPP32
 #endif
 
-#define MEMORY_POOL_SIZE	32 * 1024 * 1024
+#define MEMORY_POOL_SIZE	CONFIG_DRM_MEM_RESERVED_SIZE_MBYTES * 1024 * 1024
 #define DRM_ROCKCHIP_FB_SIZE \
 	VNBYTES(DRM_ROCKCHIP_FB_BPP) * DRM_ROCKCHIP_FB_WIDTH * DRM_ROCKCHIP_FB_HEIGHT
 
-void rockchip_show_bmp(const char *bmp);
-void rockchip_show_logo(void);
+int rockchip_show_bmp(const char *bmp);
+int rockchip_show_logo(void);
 void rockchip_display_fixup(void *blob);
 
 #endif

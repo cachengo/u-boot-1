@@ -37,6 +37,9 @@ struct uclass {
 	struct uclass_driver *uc_drv;
 	struct list_head dev_head;
 	struct list_head sibling_node;
+#ifdef CONFIG_USING_KERNEL_DTB_V2
+	struct list_head *u_boot_dev_head;
+#endif
 };
 
 struct driver;
@@ -223,7 +226,7 @@ int uclass_get_device_by_ofnode(enum uclass_id id, ofnode node,
  * @return 0 if OK, -ENODEV if there is no device match the phandle, other
  *	-ve on error
  */
-int uclass_get_device_by_phandle_id(enum uclass_id id, int phandle_id,
+int uclass_get_device_by_phandle_id(enum uclass_id id, uint phandle_id,
 				    struct udevice **devp);
 
 /**

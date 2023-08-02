@@ -11,7 +11,14 @@
 #include <ide.h>
 #include <malloc.h>
 #include <part.h>
+#ifdef CONFIG_SPL_AB
+#include <spl_ab.h>
+#endif
 #include <ubifs_uboot.h>
+#ifdef CONFIG_ANDROID_AB
+#include <android_avb/avb_ops_user.h>
+#include <android_avb/rk_avb_ops_user.h>
+#endif
 
 #undef	PART_DEBUG
 
@@ -143,6 +150,7 @@ void dev_print (struct blk_desc *dev_desc)
 		break;
 	case IF_TYPE_SD:
 	case IF_TYPE_MMC:
+	case IF_TYPE_MTD:
 	case IF_TYPE_USB:
 	case IF_TYPE_NVME:
 	case IF_TYPE_RKNAND:
@@ -278,6 +286,9 @@ static void print_part_header(const char *type, struct blk_desc *dev_desc)
 	case IF_TYPE_MMC:
 		puts ("MMC");
 		break;
+	case IF_TYPE_MTD:
+		puts("MTD");
+		break;
 	case IF_TYPE_HOST:
 		puts ("HOST");
 		break;
@@ -319,6 +330,19 @@ void part_print(struct blk_desc *dev_desc)
 		drv->print(dev_desc);
 }
 
+const char *part_get_type(struct blk_desc *dev_desc)
+{
+	struct part_driver *drv;
+
+	drv = part_driver_lookup_type(dev_desc);
+	if (!drv) {
+		printf("## Unknown partition table type %x\n",
+		       dev_desc->part_type);
+		return NULL;
+	}
+
+	return drv->name;
+}
 #endif /* HAVE_BLOCK_DEVICE */
 
 int part_get_info(struct blk_desc *dev_desc, int part,
@@ -650,29 +674,83 @@ cleanup:
 	return ret;
 }
 
-int part_get_info_by_name(struct blk_desc *dev_desc, const char *name,
-	disk_partition_t *info)
+/*
+ * For android A/B system, we append the current slot suffix quietly,
+ * this takes over the responsibility of slot suffix appending from
+ * developer to framework.
+ */
+static int part_get_info_by_name_option(struct blk_desc *dev_desc,
+					const char *name,
+					disk_partition_t *info,
+					bool strict)
 {
 	struct part_driver *part_drv;
-	int ret;
-	int i;
+	char name_slot[32] = {0};
+	int none_slot_try = 1;
+	int ret, i;
 
 	part_drv = part_driver_lookup_type(dev_desc);
 	if (!part_drv)
 		return -1;
+
+	if (strict) {
+		none_slot_try = 0;
+		strcpy(name_slot, name);
+		goto lookup;
+	}
+
+#if defined(CONFIG_ANDROID_AB) || defined(CONFIG_SPL_AB)
+	char *name_suffix = (char *)name + strlen(name) - 2;
+
+	/* Fix can not find partition with suffix "_a" & "_b". If with them, clear */
+	if (!memcmp(name_suffix, "_a", strlen("_a")) ||
+	    !memcmp(name_suffix, "_b", strlen("_b")))
+		memset(name_suffix, 0, 2);
+#endif
+#if defined(CONFIG_ANDROID_AB) && !defined(CONFIG_SPL_BUILD)
+	/* 1. Query partition with A/B slot suffix */
+	if (rk_avb_append_part_slot(name, name_slot))
+		return -1;
+#elif defined(CONFIG_SPL_AB) && defined(CONFIG_SPL_BUILD)
+	if (spl_ab_append_part_slot(dev_desc, name, name_slot))
+		return -1;
+#else
+	strcpy(name_slot, name);
+#endif
+lookup:
+	debug("## Query partition(%d): %s\n", none_slot_try, name_slot);
 	for (i = 1; i < part_drv->max_entries; i++) {
 		ret = part_drv->get_info(dev_desc, i, info);
 		if (ret != 0) {
 			/* no more entries in table */
 			break;
 		}
-		if (strcmp(name, (const char *)info->name) == 0) {
+		if (strcmp(name_slot, (const char *)info->name) == 0) {
 			/* matched */
 			return i;
 		}
 	}
 
+	/* 2. Query partition without A/B slot suffix if above failed */
+	if (none_slot_try) {
+		none_slot_try = 0;
+		strcpy(name_slot, name);
+		goto lookup;
+	}
+
 	return -1;
+}
+
+int part_get_info_by_name(struct blk_desc *dev_desc, const char *name,
+			  disk_partition_t *info)
+{
+	return part_get_info_by_name_option(dev_desc, name, info, false);
+}
+
+int part_get_info_by_name_strict(struct blk_desc *dev_desc, const char *name,
+				 disk_partition_t *info)
+{
+	return part_get_info_by_name_option(dev_desc, name, info, true);
 }
 
 void part_set_generic_name(const struct blk_desc *dev_desc,

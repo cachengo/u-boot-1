@@ -32,6 +32,7 @@
 #endif
 #include <malloc.h>
 #include <mapmem.h>
+#include <memalign.h>
 #ifdef CONFIG_BITBANGMII
 #include <miiphy.h>
 #endif
@@ -50,10 +51,15 @@
 #include <asm/mmu.h>
 #endif
 #include <asm/sections.h>
+#include <asm/system.h>
 #include <dm/root.h>
 #include <linux/compiler.h>
 #include <linux/err.h>
 #include <efi_loader.h>
+#include <sysmem.h>
+#include <bidram.h>
+#include <boot_rkimg.h>
+#include <mtd_blk.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -109,10 +115,32 @@ static int initr_reloc(void)
  * Some of these functions are needed purely because the functions they
  * call return void. If we change them to return 0, these stubs can go away.
  */
+
+static void print_cr(void)
+{
+	u32 reg;
+
+#ifdef CONFIG_ARM64
+	reg = get_sctlr();	/* get control reg. */
+#else
+	reg = get_cr();
+#endif
+	puts("CR: ");
+	if (reg & CR_M)
+		puts("M/");
+	if (reg & CR_C)
+		puts("C/");
+	if (reg & CR_I)
+		puts("I");
+	putc('\n');
+}
+
 static int initr_caches(void)
 {
 	/* Enable caches */
 	enable_caches();
+	print_cr();
+
 	return 0;
 }
 #endif
@@ -126,7 +154,7 @@ static int initr_reloc_global_data(void)
 {
 #ifdef __ARM__
 	monitor_flash_len = _end - __image_copy_start;
-#elif defined(CONFIG_NDS32)
+#elif defined(CONFIG_NDS32) || defined(CONFIG_RISCV)
 	monitor_flash_len = (ulong)&_end - (ulong)&_start;
 #elif !defined(CONFIG_SANDBOX) && !defined(CONFIG_NIOS2)
 	monitor_flash_len = (ulong)&__init_end - gd->relocaddr;
@@ -253,7 +281,12 @@ static int initr_malloc(void)
 static int initr_console_record(void)
 {
 #if defined(CONFIG_CONSOLE_RECORD)
-	return console_record_init();
+	int ret;
+
+	ret = console_record_init();
+	if (!ret)
+		console_record_reset_enable();
+	return ret;
 #else
 	return 0;
 #endif
@@ -322,7 +355,15 @@ __weak int power_init_board(void)
 
 static int initr_announce(void)
 {
-	debug("Now running in RAM - U-Boot at: %08lx\n", gd->relocaddr);
+	ulong addr;
+
+#ifndef CONFIG_SKIP_RELOCATE_UBOOT
+	addr = gd->relocaddr;
+#else
+	addr = CONFIG_SYS_TEXT_BASE;
+#endif
+	debug("Now running in RAM - U-Boot at: %08lx\n", addr);
+
 	return 0;
 }
 
@@ -389,8 +430,8 @@ static int initr_flash(void)
 #if defined(CONFIG_PPC) && !defined(CONFIG_DM_SPI)
 static int initr_spi(void)
 {
-	/* PPC does this here */
-#ifdef CONFIG_SPI
+	/* MPC8xx does this here */
+#ifdef CONFIG_MPC8XX_SPI
 #if !defined(CONFIG_ENV_IS_IN_EEPROM)
 	spi_init_f();
 #endif
@@ -404,9 +445,11 @@ static int initr_spi(void)
 /* go init the NAND */
 static int initr_nand(void)
 {
+#ifndef CONFIG_USING_KERNEL_DTB
 	puts("NAND:  ");
 	nand_init();
 	printf("%lu MiB\n", nand_size() / 1024);
+#endif
 	return 0;
 }
 #endif
@@ -435,6 +478,22 @@ static int initr_mmc(void)
 }
 #endif
 
+#ifdef CONFIG_MTD_BLK
+static int initr_mtd_blk(void)
+{
+#ifndef CONFIG_USING_KERNEL_DTB
+	struct blk_desc *dev_desc;
+
+	puts("mtd_blk:   ");
+	dev_desc = rockchip_get_bootdev();
+	if (dev_desc)
+		mtd_blk_map_partitions(dev_desc);
+#endif
+	return 0;
+}
+#endif
+
+#if !defined(CONFIG_USING_KERNEL_DTB) || !defined(CONFIG_ENV_IS_NOWHERE)
 /*
  * Tell if it's OK to load the environment early in boot.
  *
@@ -473,6 +532,90 @@ static int initr_env(void)
 
 	return 0;
 }
+#endif
+
+#ifdef CONFIG_USING_KERNEL_DTB
+/*
+ * If !defined(CONFIG_ENV_IS_NOWHERE):
+ *
+ * Storage env or kernel dtb load depends on bootdev, while bootdev
+ * depends on env varname: devtype, devnum and rkimg_bootdev, etc.
+ * So we have to use nowhere env firstly and cover the storage env
+ * after it is loaded.
+ *
+ * Providing a minimum and necessary nowhere env for board init to
+ * avoid covering the other varnames in storage env.
+ */
+static int initr_env_nowhere(void)
+{
+#ifdef CONFIG_ENV_IS_NOWHERE
+	set_default_env(NULL);
+#if defined(CONFIG_ENVF)
+	/* init envf and partitiont from envf before any partition query action */
+	env_load();
+#endif
+	return 0;
+#else
+	const char env_minimum[] = {
+		ENV_MEM_LAYOUT_SETTINGS
+#ifdef ENV_MEM_LAYOUT_SETTINGS1
+		ENV_MEM_LAYOUT_SETTINGS1
+#endif
+#ifdef RKIMG_DET_BOOTDEV
+		RKIMG_DET_BOOTDEV
+#endif
+	};
+
+	return set_board_env((char *)env_minimum, ENV_SIZE, 0, true);
+#endif
+}
+
+#if !defined(CONFIG_ENV_IS_NOWHERE)
+/*
+ * storage has been initialized in board_init(), we could switch env
+ * from nowhere to storage, i.e. CONFIG_ENV_IS_IN_xxx=y.
+ */
+static int initr_env_switch(void)
+{
+	ALLOC_CACHE_ALIGN_BUFFER(env_t, env_nowhere, 1);
+	char *data;
+	int ret;
+
+	data = env_get("bootargs");
+	if (data) {
+		env_set("bootargs_tmp", data);
+		env_set("bootargs", NULL);
+	}
+
+	/* Export nowhere env for late use */
+	ret = env_export(env_nowhere);
+	if (ret) {
+		printf("%s: export nowhere env fail, ret=%d\n", __func__, ret);
+		return -EINVAL;
+	}
+
+	/* Destroy nowhere env and import storage env */
+	initr_env();
+
+	/* Append/override nowhere env to storage env */
+	set_board_env((char *)env_nowhere->data, ENV_SIZE, H_NOCLEAR, false);
+
+	/*
+	 * Restore nowhere bootargs to append/override the one in env storage.
+	 *
+	 * Without this, the entire "bootargs" in storage env is replaces by
+	 * the one in env_nowhere->data.
+	 */
+	data = env_get("bootargs_tmp");
+	if (data) {
+		env_update("bootargs", data);
+		env_set("bootargs_tmp", NULL);
+	}
+
+	return 0;
+}
+#endif	/* CONFIG_ENV_IS_NOWHERE */
+#endif	/* CONFIG_USING_KERNEL_DTB */
 
 #ifdef CONFIG_SYS_BOOTPARAMS_LEN
 static int initr_malloc_bootparams(void)
@@ -662,7 +805,7 @@ __weak int interrupt_debugger_init(void)
 	return 0;
 }
 
-__weak int dram_initr_banksize(void)
+__weak int board_initr_caches_fixup(void)
 {
 	return 0;
 }
@@ -711,13 +854,19 @@ static init_fnc_t init_sequence_r[] = {
 	 * like other regions, otherwise there would be dcache coherence issue
 	 * between firmware and U-Boot.
 	 */
-	dram_initr_banksize,
+	board_initr_caches_fixup,
 
 #if defined(CONFIG_SYS_INIT_RAM_LOCK) && defined(CONFIG_E500)
 	initr_unlock_ram_in_cache,
 #endif
 	initr_barrier,
 	initr_malloc,
+#ifdef CONFIG_BIDRAM
+	bidram_initr,
+#endif
+#ifdef CONFIG_SYSMEM
+	sysmem_initr,
+#endif
 	log_init,
 	initr_bootstage,	/* Needs malloc() but has its own timer */
 	initr_console_record,
@@ -738,11 +887,19 @@ static init_fnc_t init_sequence_r[] = {
 #ifdef CONFIG_DM
 	initr_dm,
 #endif
+
 #ifdef CONFIG_USING_KERNEL_DTB
-	initr_env,
+	initr_env_nowhere,
 #endif
-#if defined(CONFIG_ARM) || defined(CONFIG_NDS32)
+#if defined(CONFIG_BOARD_EARLY_INIT_R)
+	board_early_init_r,
+#endif
+
+#if defined(CONFIG_ARM) || defined(CONFIG_NDS32) || defined(CONFIG_RISCV)
 	board_init,	/* Setup chipselects */
+#endif
+#if defined(CONFIG_USING_KERNEL_DTB) && !defined(CONFIG_ENV_IS_NOWHERE)
+	initr_env_switch,
 #endif
 	/*
 	 * TODO: printing of the clock inforamtion of the board is now
@@ -769,14 +926,16 @@ static init_fnc_t init_sequence_r[] = {
 #ifdef CONFIG_ADDR_MAP
 	initr_addr_map,
 #endif
-#if defined(CONFIG_BOARD_EARLY_INIT_R)
-	board_early_init_r,
-#endif
 	INIT_FUNC_WATCHDOG_RESET
 #ifdef CONFIG_POST
 	initr_post_backlog,
 #endif
 	INIT_FUNC_WATCHDOG_RESET
+
+#ifndef CONFIG_USING_KERNEL_DTB
+	/* init before storage(for: devtype, devnum, ...) */
+	initr_env,
+#endif
 #if defined(CONFIG_PCI) && defined(CONFIG_SYS_EARLY_PCI_INIT)
 	/*
 	 * Do early PCI configuration _before_ the flash gets initialised,
@@ -805,12 +964,13 @@ static init_fnc_t init_sequence_r[] = {
 #ifdef CONFIG_CMD_ONENAND
 	initr_onenand,
 #endif
+#ifdef CONFIG_MTD_BLK
+	initr_mtd_blk,
+#endif
 #ifdef CONFIG_MMC
 	initr_mmc,
 #endif
-#ifndef CONFIG_USING_KERNEL_DTB
-	initr_env,
-#endif
+
 #ifdef CONFIG_SYS_BOOTPARAMS_LEN
 	initr_malloc_bootparams,
 #endif

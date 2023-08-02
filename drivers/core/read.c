@@ -15,6 +15,11 @@ int dev_read_u32_default(struct udevice *dev, const char *propname, int def)
 	return ofnode_read_u32_default(dev_ofnode(dev), propname, def);
 }
 
+int dev_read_s32_default(struct udevice *dev, const char *propname, int def)
+{
+	return ofnode_read_s32_default(dev_ofnode(dev), propname, def);
+}
+
 const char *dev_read_string(struct udevice *dev, const char *propname)
 {
 	return ofnode_read_string(dev_ofnode(dev), propname);
@@ -149,6 +154,22 @@ const void *dev_read_prop(struct udevice *dev, const char *propname, int *lenp)
 	return ofnode_get_property(dev_ofnode(dev), propname, lenp);
 }
 
+int dev_read_first_prop(struct udevice *dev, struct ofprop *prop)
+{
+	return ofnode_get_first_property(dev_ofnode(dev), prop);
+}
+
+int dev_read_next_prop(struct ofprop *prop)
+{
+	return ofnode_get_next_property(prop);
+}
+
+const void *dev_read_prop_by_prop(struct ofprop *prop,
+				  const char **propname, int *lenp)
+{
+	return ofnode_get_property_by_prop(prop, propname, lenp);
+}
+
 int dev_read_alias_seq(struct udevice *dev, int *devnump)
 {
 	ofnode node = dev_ofnode(dev);
@@ -173,6 +194,14 @@ int dev_read_u32_array(struct udevice *dev, const char *propname,
 	if (!dev_of_valid(dev))
 		return -EINVAL;
 	return ofnode_read_u32_array(dev_ofnode(dev), propname, out_values, sz);
+}
+
+int dev_write_u32_array(struct udevice *dev, const char *propname,
+			u32 *values, size_t sz)
+{
+	if (!dev_of_valid(dev))
+		return -EINVAL;
+	return ofnode_write_u32_array(dev_ofnode(dev), propname, values, sz);
 }
 
 const uint8_t *dev_read_u8_array_ptr(struct udevice *dev, const char *propname,
@@ -201,4 +230,9 @@ int dev_read_resource_byname(struct udevice *dev, const char *name,
 			     struct resource *res)
 {
 	return ofnode_read_resource_byname(dev_ofnode(dev), name, res);
+}
+
+u64 dev_translate_address(struct udevice *dev, const fdt32_t *in_addr)
+{
+	return ofnode_translate_address(dev_ofnode(dev), in_addr);
 }

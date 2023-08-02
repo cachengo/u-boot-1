@@ -12,7 +12,6 @@
 #include <dm/uclass-internal.h>
 #include <asm/setup.h>
 #include <asm/arch/periph.h>
-#include <asm/io.h>
 #include <power/regulator.h>
 #include <u-boot/sha256.h>
 #include <usb.h>
@@ -166,11 +165,6 @@ static void setup_serial(void)
 
 int misc_init_r(void)
 {
-#if (defined CONFIG_TARGET_ROCK960AB_RK3399) || (defined CONFIG_TARGET_ROCK960C_RK3399)
-	printf("Enable PCIE Power\n");
-
-	__raw_writel(0xffff0001, (void __iomem *)0xff77e640);
-#endif
 	setup_serial();
 	setup_macaddr();
 

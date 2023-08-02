@@ -26,6 +26,21 @@ enum {
 	OUTPUT_MIN_HZ	= 24 * 1000000,
 };
 
+#ifndef CONFIG_SPL_BUILD
+#define RK3036_CLK_DUMP(_id, _name, _iscru)	\
+{						\
+	.id = _id,				\
+	.name = _name,				\
+	.is_cru = _iscru,			\
+}
+
+static const struct rk3036_clk_info clks_dump[] = {
+	RK3036_CLK_DUMP(PLL_APLL, "apll", true),
+	RK3036_CLK_DUMP(PLL_DPLL, "dpll", true),
+	RK3036_CLK_DUMP(PLL_GPLL, "gpll", true),
+};
+#endif
+
 #define RATE_TO_DIV(input_rate, output_rate) \
 	((input_rate) / (output_rate) - 1);
 
@@ -89,6 +104,7 @@ static void rkclk_init(struct rk3036_cru *cru)
 	u32 aclk_div;
 	u32 hclk_div;
 	u32 pclk_div;
+	u32 nandc_div;
 
 	/* pll enter slow-mode */
 	rk_clrsetreg(&cru->cru_mode_con,
@@ -106,10 +122,10 @@ static void rkclk_init(struct rk3036_cru *cru)
 	 * core hz : apll = 1:1
 	 */
 	aclk_div = APLL_HZ / CORE_ACLK_HZ - 1;
-	assert((aclk_div + 1) * CORE_ACLK_HZ == APLL_HZ && aclk_div < 0x7);
+	assert((aclk_div + 1) * CORE_ACLK_HZ <= APLL_HZ && aclk_div < 0x7);
 
 	pclk_div = APLL_HZ / CORE_PERI_HZ - 1;
-	assert((pclk_div + 1) * CORE_PERI_HZ == APLL_HZ && pclk_div < 0xf);
+	assert((pclk_div + 1) * CORE_PERI_HZ <= APLL_HZ && pclk_div < 0xf);
 
 	rk_clrsetreg(&cru->cru_clksel_con[0],
 		     CORE_CLK_PLL_SEL_MASK | CORE_DIV_CON_MASK,
@@ -126,13 +142,13 @@ static void rkclk_init(struct rk3036_cru *cru)
 	 * set up dependent divisors for PCLK/HCLK and ACLK clocks.
 	 */
 	aclk_div = GPLL_HZ / BUS_ACLK_HZ - 1;
-	assert((aclk_div + 1) * BUS_ACLK_HZ == GPLL_HZ && aclk_div <= 0x1f);
+	assert((aclk_div + 1) * BUS_ACLK_HZ <= GPLL_HZ && aclk_div <= 0x1f);
 
 	pclk_div = BUS_ACLK_HZ / BUS_PCLK_HZ - 1;
-	assert((pclk_div + 1) * BUS_PCLK_HZ == BUS_ACLK_HZ && pclk_div <= 0x7);
+	assert((pclk_div + 1) * BUS_PCLK_HZ <= BUS_ACLK_HZ && pclk_div <= 0x7);
 
 	hclk_div = BUS_ACLK_HZ / BUS_HCLK_HZ - 1;
-	assert((hclk_div + 1) * BUS_HCLK_HZ == BUS_ACLK_HZ && hclk_div <= 0x3);
+	assert((hclk_div + 1) * BUS_HCLK_HZ <= BUS_ACLK_HZ && hclk_div <= 0x3);
 
 	rk_clrsetreg(&cru->cru_clksel_con[0],
 		     BUS_ACLK_PLL_SEL_MASK | BUS_ACLK_DIV_MASK,
@@ -149,14 +165,14 @@ static void rkclk_init(struct rk3036_cru *cru)
 	 * set up dependent divisors for PCLK/HCLK and ACLK clocks.
 	 */
 	aclk_div = GPLL_HZ / PERI_ACLK_HZ - 1;
-	assert((aclk_div + 1) * PERI_ACLK_HZ == GPLL_HZ && aclk_div < 0x1f);
+	assert((aclk_div + 1) * PERI_ACLK_HZ <= GPLL_HZ && aclk_div < 0x1f);
 
 	hclk_div = ilog2(PERI_ACLK_HZ / PERI_HCLK_HZ);
-	assert((1 << hclk_div) * PERI_HCLK_HZ ==
+	assert((1 << hclk_div) * PERI_HCLK_HZ <=
 		PERI_ACLK_HZ && (hclk_div < 0x4));
 
 	pclk_div = ilog2(PERI_ACLK_HZ / PERI_PCLK_HZ);
-	assert((1 << pclk_div) * PERI_PCLK_HZ ==
+	assert((1 << pclk_div) * PERI_PCLK_HZ <=
 		PERI_ACLK_HZ && pclk_div < 0x8);
 
 	rk_clrsetreg(&cru->cru_clksel_con[10],
@@ -166,6 +182,13 @@ static void rkclk_init(struct rk3036_cru *cru)
 		     pclk_div << PERI_PCLK_DIV_SHIFT |
 		     hclk_div << PERI_HCLK_DIV_SHIFT |
 		     aclk_div << PERI_ACLK_DIV_SHIFT);
+
+	nandc_div = DIV_ROUND_UP(GPLL_HZ, 150 * 1000000);
+
+	rk_clrsetreg(&cru->cru_clksel_con[16],
+		     NANDC_PLL_MASK | NANDC_DIV_MASK,
+		     NANDC_SEL_GPLL << NANDC_PLL_SHIFT |
+		     nandc_div << NANDC_DIV_SHIFT);
 
 	/* PLL enter normal-mode */
 	rk_clrsetreg(&cru->cru_mode_con,
@@ -285,13 +308,170 @@ static ulong rockchip_mmc_set_clk(struct rk3036_cru *cru, uint clk_general_rate,
 	return rockchip_mmc_get_clk(cru, clk_general_rate, periph);
 }
 
+static ulong rk3036_spi_get_clk(struct rk3036_cru *cru, uint clk_general_rate)
+{
+	u32 div, con;
+
+	con = readl(&cru->cru_clksel_con[25]);
+	div = (con & SPI_DIV_MASK) >> SPI_DIV_SHIFT;
+
+	return DIV_TO_RATE(clk_general_rate, div);
+}
+
+static ulong  rk3036_spi_set_clk(struct rk3036_cru *cru,
+				 uint clk_general_rate,
+				 ulong hz)
+{
+	int div;
+
+	div = DIV_ROUND_UP(clk_general_rate, hz);
+	assert(div - 1 < 128);
+	rk_clrsetreg(&cru->cru_clksel_con[25],
+		     SPI_PLL_SEL_MASK | SPI_DIV_MASK,
+		     SPI_PLL_SEL_GPLL << SPI_PLL_SEL_SHIFT |
+		     (div - 1) << SPI_DIV_SHIFT);
+	return  rk3036_spi_get_clk(cru, clk_general_rate);
+}
+
+static ulong rockchip_dclk_lcdc_get_clk(struct rk3036_cru *cru,
+					uint clk_general_rate)
+{
+	u32 con, div, sel, parent;
+
+	con = readl(&cru->cru_clksel_con[28]);
+	div = (con & LCDC_DCLK_DIV_MASK) >> LCDC_DCLK_DIV_SHIFT;
+	sel = (con & LCDC_DCLK_SEL_MASK) >> LCDC_DCLK_SEL_SHIFT;
+	if (sel == LCDC_DCLK_SEL_GPLL)
+		parent = clk_general_rate;
+	else
+		return -ENOENT;
+
+	return DIV_TO_RATE(parent, div);
+}
+
+static ulong rockchip_dclk_lcdc_set_clk(struct rk3036_cru *cru,
+					uint clk_general_rate, uint freq)
+{
+	int src_clk_div;
+
+	src_clk_div = DIV_ROUND_UP(clk_general_rate, freq);
+	assert(src_clk_div - 1 <= 255);
+
+	rk_clrsetreg(&cru->cru_clksel_con[28],
+		     LCDC_DCLK_SEL_MASK | LCDC_DCLK_DIV_MASK,
+		     LCDC_DCLK_SEL_GPLL << LCDC_DCLK_SEL_SHIFT |
+		     (src_clk_div - 1) << LCDC_DCLK_DIV_SHIFT);
+
+	return rockchip_dclk_lcdc_get_clk(cru, clk_general_rate);
+}
+
+static ulong rockchip_aclk_lcdc_get_clk(struct rk3036_cru *cru,
+					uint clk_general_rate)
+{
+	u32 con, div, sel, parent;
+
+	con = readl(&cru->cru_clksel_con[31]);
+	div = (con & LCDC_ACLK_DIV_MASK) >> LCDC_ACLK_DIV_SHIFT;
+	sel = (con & LCDC_ACLK_SEL_MASK) >> LCDC_ACLK_SEL_SHIFT;
+	if (sel == LCDC_ACLK_SEL_GPLL)
+		parent = clk_general_rate;
+	else
+		return -ENOENT;
+
+	return DIV_TO_RATE(parent, div);
+}
+
+static ulong rockchip_aclk_lcdc_set_clk(struct rk3036_cru *cru,
+					uint clk_general_rate, uint freq)
+{
+	int src_clk_div;
+
+	src_clk_div = DIV_ROUND_UP(clk_general_rate, freq);
+	assert(src_clk_div - 1 <= 31);
+
+	rk_clrsetreg(&cru->cru_clksel_con[31],
+		     LCDC_ACLK_SEL_MASK | LCDC_ACLK_DIV_MASK,
+		     LCDC_ACLK_SEL_GPLL << LCDC_ACLK_SEL_SHIFT |
+		     (src_clk_div - 1) << LCDC_ACLK_DIV_SHIFT);
+
+	return rockchip_aclk_lcdc_get_clk(cru, clk_general_rate);
+}
+
+static ulong rk3036_peri_get_clk(struct rk3036_clk_priv *priv, ulong clk_id,
+				 uint clk_general_rate)
+{
+	struct rk3036_cru *cru = priv->cru;
+	u32 div, con, parent;
+
+	switch (clk_id) {
+	case ACLK_PERI:
+		con = readl(&cru->cru_clksel_con[10]);
+		div = (con & PERI_ACLK_DIV_MASK) >> PERI_ACLK_DIV_SHIFT;
+		parent = clk_general_rate;
+		break;
+	case PCLK_PWM:
+		con = readl(&cru->cru_clksel_con[10]);
+		div = (con & PERI_PCLK_DIV_MASK) >> PERI_PCLK_DIV_SHIFT;
+		parent = rk3036_peri_get_clk(priv, ACLK_PERI, clk_general_rate);
+		break;
+	default:
+		printf("do not support this peripheral bus\n");
+		return -EINVAL;
+	}
+
+	return DIV_TO_RATE(parent, div);
+}
+
+static ulong rk3036_peri_set_clk(struct rk3036_clk_priv *priv,
+				 ulong clk_id, uint clk_general_rate,
+				 uint hz)
+{
+	struct rk3036_cru *cru = priv->cru;
+	int src_clk_div;
+
+	switch (clk_id) {
+	case ACLK_PERI:
+		src_clk_div = DIV_ROUND_UP(clk_general_rate, hz);
+		assert(src_clk_div - 1 < 32);
+		rk_clrsetreg(&cru->cru_clksel_con[10],
+			     PERI_PLL_SEL_MASK | PERI_ACLK_DIV_MASK,
+			     PERI_PLL_GPLL << PERI_PLL_SEL_SHIFT |
+			     (src_clk_div - 1) << PERI_ACLK_DIV_SHIFT);
+		break;
+	case PCLK_PWM:
+		src_clk_div = DIV_ROUND_UP(rk3036_peri_get_clk(priv,
+							       ACLK_PERI,
+							       clk_general_rate),
+							       hz);
+		assert(src_clk_div - 1 < 8);
+		rk_clrsetreg(&cru->cru_clksel_con[10],
+			     PERI_PCLK_DIV_MASK,
+			     (src_clk_div - 1) << PERI_PCLK_DIV_SHIFT);
+		break;
+	default:
+		printf("do not support this peripheral bus\n");
+		return -EINVAL;
+	}
+
+	return rk3036_peri_get_clk(priv, clk_id, clk_general_rate);
+}
+
 static ulong rk3036_clk_get_rate(struct clk *clk)
 {
 	struct rk3036_clk_priv *priv = dev_get_priv(clk->dev);
+	ulong gclk_rate = rkclk_pll_get_rate(priv->cru, CLK_GENERAL);
 
 	switch (clk->id) {
 	case 0 ... 63:
 		return rkclk_pll_get_rate(priv->cru, clk->id);
+	case SCLK_LCDC:
+		return rockchip_dclk_lcdc_get_clk(priv->cru, gclk_rate);
+	case ACLK_LCDC:
+		return rockchip_aclk_lcdc_get_clk(priv->cru, gclk_rate);
+	case SCLK_SPI:
+		return rk3036_spi_get_clk(priv->cru, gclk_rate);
+	case PCLK_PWM:
+		return rk3036_peri_get_clk(priv, clk->id, gclk_rate);
 	default:
 		return -ENOENT;
 	}
@@ -310,6 +490,22 @@ static ulong rk3036_clk_set_rate(struct clk *clk, ulong rate)
 	case SCLK_EMMC:
 		new_rate = rockchip_mmc_set_clk(priv->cru, gclk_rate,
 						clk->id, rate);
+		break;
+	case SCLK_LCDC:
+		new_rate = rockchip_dclk_lcdc_set_clk(priv->cru, gclk_rate,
+						      rate);
+		break;
+	case ACLK_LCDC:
+		new_rate = rockchip_aclk_lcdc_set_clk(priv->cru, gclk_rate,
+						      rate);
+		break;
+	case SCLK_SPI:
+		new_rate = rk3036_spi_set_clk(priv->cru, gclk_rate,
+					      rate);
+		break;
+	case PCLK_PWM:
+		new_rate = rk3036_peri_set_clk(priv, clk->id, gclk_rate,
+					       rate);
 		break;
 	default:
 		return -ENOENT;
@@ -336,7 +532,14 @@ static int rk3036_clk_probe(struct udevice *dev)
 {
 	struct rk3036_clk_priv *priv = dev_get_priv(dev);
 
+	priv->sync_kernel = false;
+	if (!priv->armclk_enter_hz)
+		priv->armclk_enter_hz = rkclk_pll_get_rate(priv->cru,
+							   CLK_ARM);
 	rkclk_init(priv->cru);
+	if (!priv->armclk_init_hz)
+		priv->armclk_init_hz = rkclk_pll_get_rate(priv->cru,
+							  CLK_ARM);
 
 	return 0;
 }
@@ -392,3 +595,69 @@ U_BOOT_DRIVER(rockchip_rk3036_cru) = {
 	.bind		= rk3036_clk_bind,
 	.probe		= rk3036_clk_probe,
 };
+
+#ifndef CONFIG_SPL_BUILD
+/**
+ * soc_clk_dump() - Print clock frequencies
+ * Returns zero on success
+ *
+ * Implementation for the clk dump command.
+ */
+int soc_clk_dump(void)
+{
+	struct udevice *cru_dev;
+	struct rk3036_clk_priv *priv;
+	const struct rk3036_clk_info *clk_dump;
+	struct clk clk;
+	unsigned long clk_count = ARRAY_SIZE(clks_dump);
+	unsigned long rate;
+	int i, ret;
+
+	ret = uclass_get_device_by_driver(UCLASS_CLK,
+					  DM_GET_DRIVER(rockchip_rk3036_cru),
+					  &cru_dev);
+	if (ret) {
+		printf("%s failed to get cru device\n", __func__);
+		return ret;
+	}
+
+	priv = dev_get_priv(cru_dev);
+	printf("CLK: (%s. arm: enter %lu KHz, init %lu KHz, kernel %lu%s)\n",
+	       priv->sync_kernel ? "sync kernel" : "uboot",
+	       priv->armclk_enter_hz / 1000,
+	       priv->armclk_init_hz / 1000,
+	       priv->set_armclk_rate ? priv->armclk_hz / 1000 : 0,
+	       priv->set_armclk_rate ? " KHz" : "N/A");
+	for (i = 0; i < clk_count; i++) {
+		clk_dump = &clks_dump[i];
+		if (clk_dump->name) {
+			clk.id = clk_dump->id;
+			if (clk_dump->is_cru)
+				ret = clk_request(cru_dev, &clk);
+			if (ret < 0)
+				return ret;
+
+			rate = clk_get_rate(&clk);
+			clk_free(&clk);
+			if (i == 0) {
+				if (rate < 0)
+					printf("  %s %s\n", clk_dump->name,
+					       "unknown");
+				else
+					printf("  %s %lu KHz\n", clk_dump->name,
+					       rate / 1000);
+			} else {
+				if (rate < 0)
+					printf("  %s %s\n", clk_dump->name,
+					       "unknown");
+				else
+					printf("  %s %lu KHz\n", clk_dump->name,
+					       rate / 1000);
+			}
+		}
+	}
+
+	return 0;
+}
+#endif
+

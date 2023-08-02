@@ -35,6 +35,12 @@ config SYS_HZ
 	  get_timer() must operate in milliseconds and this option must be
 	  set to 1000.
 
+config SYS_STACK_SIZE
+	hex
+	default 0x200000
+	help
+	 The system stack size.
+
 config USE_TINY_PRINTF
 	bool "Enable tiny printf() version"
 	help
@@ -71,6 +77,7 @@ config LIB_RAND
 
 config SPL_TINY_MEMSET
 	bool "Use a very small memset() in SPL"
+	depends on SPL
 	help
 	  The faster memset() is the arch-specific one (if available) enabled
 	  by CONFIG_USE_ARCH_MEMSET. If that is not enabled, we can still get
@@ -92,6 +99,18 @@ config RBTREE
 
 config BITREVERSE
 	bool
+
+config SYSMEM
+	bool "System memory management"
+	default y
+	help
+	  This enables support for system permanent memory management.
+
+config BIDRAM
+	bool "GD board bi_dram[] memory management"
+	default y
+	help
+	  This enables support for GD board bi_dram[] memory management.
 
 source lib/dhry/Kconfig
 
@@ -121,6 +140,20 @@ config TPM
 
 endmenu
 
+menu "Boot Configuration"
+
+config XBC
+	bool "Boot Configuration support"
+	depends on ANDROID_BOOT_IMAGE
+	default n
+	help
+	  This enables support of Boot Configuration which can be used
+	  to pass boot configuration parameters to user space. These
+	  parameters will show up in /proc/bootconfig similar to the kernel
+	  parameters that show up in /proc/cmdline
+
+endmenu
+
 menu "Hashing Support"
 
 config SHA1
@@ -137,6 +170,14 @@ config SHA256
 	  This option enables support of hashing using SHA256 algorithm.
 	  The hash is calculated in software.
 	  The SHA256 algorithm produces a 256-bit (32-byte) hash value
+	  (digest).
+
+config SHA512
+	bool "Enable SHA512 support"
+	help
+	  This option enables support of hashing using SHA512 algorithm.
+	  The hash is calculated in software.
+	  The SHA512 algorithm produces a 512-bit (64-byte) hash value
 	  (digest).
 
 config SHA_HW_ACCEL
@@ -188,6 +229,14 @@ config LZMA
 	  ratio and fairly fast decompression speed. See also
 	  CONFIG_CMD_LZMADEC which provides a decode command.
 
+config SPL_LZMA
+	bool "Enable LZMA decompression support in SPL"
+	depends on SPL
+	help
+	  This enables support for LZMA (Lempel-Ziv-Markov chain algorithm),
+	  a dictionary compression algorithm that provides a high compression
+	  ratio and fairly fast decompression speed. See also
+
 config LZO
 	bool "Enable LZO decompression support"
 	help
@@ -218,6 +267,11 @@ config ERRNO_STR
 	  corresponding text message:
 	  - if errno is null or positive number - a pointer to "Success" message
 	  - if errno is negative - a pointer to errno related message
+
+config HEXDUMP
+	bool "Enable hexdump"
+	help
+	  This enables functions for printing dumps of binary data.
 
 config OF_LIBFDT
 	bool "Enable the FDT library"
@@ -294,6 +348,13 @@ config SMBIOS_PRODUCT_NAME
 	  The product name to store in SMBIOS structures.
 	  Change this to override the default one (CONFIG_SYS_BOARD).
 
+config LIB_RATIONAL
+	bool "enable continued fraction calculation routines"
+
+config SPL_LIB_RATIONAL
+	bool "enable continued fraction calculation routines for SPL"
+	depends on SPL
+
 endmenu
 
 source lib/efi/Kconfig
@@ -304,5 +365,4 @@ source lib/avb/libavb_atx/Kconfig
 source lib/avb/libavb_user/Kconfig
 source lib/avb/rk_avb_user/Kconfig
 source lib/optee_clientApi/Kconfig
-
 endmenu

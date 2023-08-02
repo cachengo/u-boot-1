@@ -20,27 +20,18 @@
 #define CONFIG_SYS_CBSIZE		1024
 
 #define CONFIG_SPL_FRAMEWORK
-#ifdef CONFIG_SPL_ROCKCHIP_BACK_TO_BROM
-/* Bootrom will load u-boot binary to 0x0 once return from SPL */
-#define CONFIG_SYS_TEXT_BASE		0x00000000
-#else
 #define CONFIG_SYS_TEXT_BASE		0x00200000
-#endif
 #define CONFIG_SYS_INIT_SP_ADDR		0x00400000
 #define CONFIG_SYS_LOAD_ADDR		0x00800800
-#define CONFIG_SPL_STACK		0xff718000
+#define CONFIG_SPL_STACK		0x00180000
+#define CONFIG_SPL_TEXT_BASE		0x00000000
+#define CONFIG_SPL_MAX_SIZE		0x40000
 
 #define CONFIG_SYS_BOOTM_LEN		(64 << 20)	/*  64M */
 #define GICD_BASE			0xffc01000
 #define GICC_BASE			0xffc02000
 
 #define CONFIG_ROCKUSB_G_DNL_PID	0x320A
-
-#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_TPL_BOOTROM_SUPPORT)
-# define CONFIG_SPL_TEXT_BASE		0x0
-#else
-# define CONFIG_SPL_TEXT_BASE		0xff704000
-#endif
 
 /* MMC/SD IP block */
 #define CONFIG_BOUNCE_BUFFER
@@ -56,10 +47,6 @@
 #define SDRAM_BANK_SIZE			(2UL << 30)
 #define SDRAM_MAX_SIZE			0xfe000000
 
-#define CONFIG_SPI_FLASH
-#define CONFIG_SPI
-#define CONFIG_SF_DEFAULT_SPEED 20000000
-
 #ifndef CONFIG_SPL_BUILD
 /* usb otg */
 #define CONFIG_ROCKCHIP_USB2_PHY
@@ -72,17 +59,13 @@
 #define ENV_MEM_LAYOUT_SETTINGS \
 	"scriptaddr=0x00000000\0" \
 	"pxefile_addr_r=0x00100000\0" \
-	"fdt_addr_r=0x01f00000\0" \
-	"kernel_addr_r=0x02000000\0" \
-	"ramdisk_addr_r=0x04000000\0"
+	"fdt_addr_r=0x08300000\0" \
+	"kernel_addr_r=0x02008000\0" \
+	"ramdisk_addr_r=0x0a200000\0"
 
 #include <config_distro_bootcmd.h>
 
-/* Linux fails to load the fdt if it's loaded above 256M on a Rock 2 board, so
- * limit the fdt reallocation to that */
 #define CONFIG_EXTRA_ENV_SETTINGS \
-	"fdt_high=0x0fffffff\0" \
-	"initrd_high=0x0fffffff\0" \
 	"partitions=" PARTS_DEFAULT \
 	ENV_MEM_LAYOUT_SETTINGS \
 	ROCKCHIP_DEVICE_SETTINGS \
