@@ -18,6 +18,8 @@
 #include <errno.h>
 #include <fat.h>
 #include <mmc.h>
+#include <pci.h>
+#include <nvme.h>
 
 #ifdef CONFIG_SPL_BUILD
 /* TODO(sjg@chromium.org): Figure out why this is needed */
@@ -46,6 +48,13 @@ static int env_fat_save(void)
 	err = env_export(&env_new);
 	if (err)
 		return err;
+
+        printf("\n** Initializing PCI devices **\n");
+
+        pci_init();
+		nvme_scan_namespace();
+        printf("\n** Device is \"%s\" **\n", CONFIG_ENV_FAT_INTERFACE);
+        printf("\n** Partition is \"%s\" **\n", CONFIG_ENV_FAT_DEVICE_AND_PART);
 
 	part = blk_get_device_part_str(CONFIG_ENV_FAT_INTERFACE,
 					CONFIG_ENV_FAT_DEVICE_AND_PART,
@@ -81,6 +90,9 @@ static int env_fat_load(void)
 	disk_partition_t info;
 	int dev, part;
 	int err;
+
+        pci_init();
+		nvme_scan_namespace();
 
 	part = blk_get_device_part_str(CONFIG_ENV_FAT_INTERFACE,
 					CONFIG_ENV_FAT_DEVICE_AND_PART,

@@ -24,7 +24,6 @@ static char default_environment[] = {
 const uchar default_environment[] = {
 #endif
 	MENDER_ENV_SETTINGS
-#ifndef CONFIG_USE_DEFAULT_ENV_FILE
 
 #ifdef	CONFIG_ENV_CALLBACK_LIST_DEFAULT
 	ENV_CALLBACK_VAR "=" CONFIG_ENV_CALLBACK_LIST_DEFAULT "\0"

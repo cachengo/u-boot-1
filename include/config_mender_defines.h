@@ -23,7 +23,7 @@
 
 #define MENDER_BOOT_KERNEL_TYPE "booti"
 #define MENDER_KERNEL_NAME "Image"
-#define MENDER_DTB_NAME "rk3399-zaku.dtb"
+#define MENDER_DTB_NAME "rk3588-rock-5b.dtb"
 #define MENDER_UBOOT_PRE_SETUP_COMMANDS ""
 #define MENDER_UBOOT_POST_SETUP_COMMANDS ""
 #endif /* !HEADER_CONFIG_MENDER_DEFINES_H */

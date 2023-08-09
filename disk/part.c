@@ -405,7 +405,9 @@ int blk_get_device_by_str(const char *ifname, const char *dev_hwpart_str,
 	const char *dev_str, *hwpart_str;
 	int dev, hwpart;
 
-	hwpart_str = strchr(dev_hwpart_str, '.');
+	hwpart_str = strchr(dev_hwpart_str, ':');
+
+	printf("\n** Parsed partition is: \"%s\" **\n", hwpart_str);
 	if (hwpart_str) {
 		dup_str = strdup(dev_hwpart_str);
 		dup_str[hwpart_str - dev_hwpart_str] = 0;
@@ -413,7 +415,9 @@ int blk_get_device_by_str(const char *ifname, const char *dev_hwpart_str,
 		hwpart_str++;
 	} else {
 		dev_str = dev_hwpart_str;
-		hwpart = 0;
+                dev_str = "0";
+		hwpart = 1;
+                printf("\n** Parsed partition is: \"%s\" **\n", "1");
 	}
 
 	dev = simple_strtoul(dev_str, &ep, 16);
@@ -433,7 +437,8 @@ int blk_get_device_by_str(const char *ifname, const char *dev_hwpart_str,
 			goto cleanup;
 		}
 	}
-
+        dev = 0;
+        hwpart = 1;
 	*dev_desc = get_dev_hwpart(ifname, dev, hwpart);
 	if (!(*dev_desc) || ((*dev_desc)->type == DEV_TYPE_UNKNOWN)) {
 		printf("** Bad device %s %s **\n", ifname, dev_hwpart_str);
