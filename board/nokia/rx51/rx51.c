@@ -19,7 +19,23 @@
  *	Richard Woodruff <r-woodruff2@ti.com>
  *	Syed Mohammed Khasim <khasim@ti.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
@@ -234,18 +250,18 @@ void setup_board_tags(struct tag **in_params)
 	params->u.core.rootdev = 0x0;
 
 	/* append omap atag only if env setup_omap_atag is set to 1 */
-	str = env_get("setup_omap_atag");
+	str = getenv("setup_omap_atag");
 	if (!str || str[0] != '1')
 		return;
 
-	str = env_get("setup_console_atag");
+	str = getenv("setup_console_atag");
 	if (str && str[0] == '1')
 		setup_console_atag = 1;
 	else
 		setup_console_atag = 0;
 
-	setup_boot_reason_atag = env_get("setup_boot_reason_atag");
-	setup_boot_mode_atag = env_get("setup_boot_mode_atag");
+	setup_boot_reason_atag = getenv("setup_boot_reason_atag");
+	setup_boot_mode_atag = getenv("setup_boot_mode_atag");
 
 	params = *in_params;
 	t = (struct tag_omap *)&params->u;
@@ -316,10 +332,10 @@ void *video_hw_init(void)
 static void twl4030_regulator_set_mode(u8 id, u8 mode)
 {
 	u16 msg = MSG_SINGULAR(DEV_GRP_P1, id, mode);
-	twl4030_i2c_write_u8(TWL4030_CHIP_PM_MASTER,
-			     TWL4030_PM_MASTER_PB_WORD_MSB, msg >> 8);
-	twl4030_i2c_write_u8(TWL4030_CHIP_PM_MASTER,
-			     TWL4030_PM_MASTER_PB_WORD_LSB, msg & 0xff);
+	twl4030_i2c_write_u8(TWL4030_CHIP_PM_MASTER, msg >> 8,
+			TWL4030_PM_MASTER_PB_WORD_MSB);
+	twl4030_i2c_write_u8(TWL4030_CHIP_PM_MASTER, msg & 0xff,
+			TWL4030_PM_MASTER_PB_WORD_LSB);
 }
 
 static void omap3_emu_romcode_call(u32 service_id, u32 *parameters)
@@ -341,17 +357,6 @@ static void omap3_emu_romcode_call(u32 service_id, u32 *parameters)
 	do_omap3_emu_romcode_call(service_id, OMAP3_PUBLIC_SRAM_SCRATCH_AREA);
 }
 
-void omap3_set_aux_cr_secure(u32 acr)
-{
-	struct emu_hal_params_rx51 emu_romcode_params = { 0, };
-
-	emu_romcode_params.num_params = 2;
-	emu_romcode_params.param1 = acr;
-
-	omap3_emu_romcode_call(OMAP3_EMU_HAL_API_WRITE_ACR,
-			       (u32 *)&emu_romcode_params);
-}
-
 /*
  * Routine: omap3_update_aux_cr_secure_rx51
  * Description: Modify the contents Auxiliary Control Register.
@@ -361,13 +366,19 @@ void omap3_set_aux_cr_secure(u32 acr)
  */
 static void omap3_update_aux_cr_secure_rx51(u32 set_bits, u32 clear_bits)
 {
+	struct emu_hal_params_rx51 emu_romcode_params = { 0, };
 	u32 acr;
 
 	/* Read ACR */
 	asm volatile ("mrc p15, 0, %0, c1, c0, 1" : "=r" (acr));
 	acr &= ~clear_bits;
 	acr |= set_bits;
-	omap3_set_aux_cr_secure(acr);
+
+	emu_romcode_params.num_params = 2;
+	emu_romcode_params.param1 = acr;
+
+	omap3_emu_romcode_call(OMAP3_EMU_HAL_API_WRITE_ACR,
+				(u32 *)&emu_romcode_params);
 }
 
 /*
@@ -395,12 +406,12 @@ int misc_init_r(void)
 				TWL4030_PM_RECEIVER_DEV_GRP_P1);
 
 	/* store I2C access state */
-	twl4030_i2c_read_u8(TWL4030_CHIP_PM_MASTER, TWL4030_PM_MASTER_PB_CFG,
-			    &state);
+	twl4030_i2c_read_u8(TWL4030_CHIP_PM_MASTER, &state,
+			TWL4030_PM_MASTER_PB_CFG);
 
 	/* enable I2C access to powerbus (needed for twl4030 regulator) */
-	twl4030_i2c_write_u8(TWL4030_CHIP_PM_MASTER, TWL4030_PM_MASTER_PB_CFG,
-			     0x02);
+	twl4030_i2c_write_u8(TWL4030_CHIP_PM_MASTER, 0x02,
+			TWL4030_PM_MASTER_PB_CFG);
 
 	/* set VAUX3, VSIM and VMMC1 state to active - enable eMMC memory */
 	twl4030_regulator_set_mode(RES_VAUX3, RES_STATE_ACTIVE);
@@ -408,12 +419,12 @@ int misc_init_r(void)
 	twl4030_regulator_set_mode(RES_VMMC1, RES_STATE_ACTIVE);
 
 	/* restore I2C access state */
-	twl4030_i2c_write_u8(TWL4030_CHIP_PM_MASTER, TWL4030_PM_MASTER_PB_CFG,
-			     state);
+	twl4030_i2c_write_u8(TWL4030_CHIP_PM_MASTER, state,
+			TWL4030_PM_MASTER_PB_CFG);
 
 	/* set env variable attkernaddr for relocated kernel */
 	sprintf(buf, "%#x", KERNEL_ADDRESS);
-	env_set("attkernaddr", buf);
+	setenv("attkernaddr", buf);
 
 	/* initialize omap tags */
 	init_omap_tags();
@@ -421,18 +432,14 @@ int misc_init_r(void)
 	/* reuse atags from previous bootloader */
 	reuse_atags();
 
-	omap_die_id_display();
+	dieid_num_r();
 	print_cpuinfo();
 
 	/*
 	 * Cortex-A8(r1p0..r1p2) errata 430973 workaround
 	 * Set IBE bit in Auxiliary Control Register
-	 *
-	 * Call this routine only on real secure device
-	 * Qemu does not implement secure PPA and crash
 	 */
-	if (get_device_type() == HS_DEVICE)
-		omap3_update_aux_cr_secure_rx51(1 << 6, 0);
+	omap3_update_aux_cr_secure_rx51(1 << 6, 0);
 
 	return 0;
 }
@@ -468,14 +475,14 @@ void hw_watchdog_reset(void)
 		return;
 
 	/* read actual watchdog timeout */
-	twl4030_i2c_read_u8(TWL4030_CHIP_PM_RECEIVER,
-			    TWL4030_PM_RECEIVER_WATCHDOG_CFG, &timeout);
+	twl4030_i2c_read_u8(TWL4030_CHIP_PM_RECEIVER, &timeout,
+			TWL4030_PM_RECEIVER_WATCHDOG_CFG);
 
 	/* timeout 0 means watchdog is disabled */
 	/* reset watchdog timeout to 31s (maximum) */
 	if (timeout != 0)
-		twl4030_i2c_write_u8(TWL4030_CHIP_PM_RECEIVER,
-				     TWL4030_PM_RECEIVER_WATCHDOG_CFG, 31);
+		twl4030_i2c_write_u8(TWL4030_CHIP_PM_RECEIVER, 31,
+				TWL4030_PM_RECEIVER_WATCHDOG_CFG);
 
 	/* store last watchdog reset time */
 	twl_wd_time = get_timer(0);
@@ -524,8 +531,8 @@ int rx51_kp_init(void)
 {
 	int ret = 0;
 	u8 ctrl;
-	ret = twl4030_i2c_read_u8(TWL4030_CHIP_KEYPAD,
-				  TWL4030_KEYPAD_KEYP_CTRL_REG, &ctrl);
+	ret = twl4030_i2c_read_u8(TWL4030_CHIP_KEYPAD, &ctrl,
+		TWL4030_KEYPAD_KEYP_CTRL_REG);
 
 	if (ret)
 		return ret;
@@ -534,18 +541,18 @@ int rx51_kp_init(void)
 	ctrl |= TWL4030_KEYPAD_CTRL_KBD_ON;
 	ctrl |= TWL4030_KEYPAD_CTRL_SOFT_NRST;
 	ctrl |= TWL4030_KEYPAD_CTRL_SOFTMODEN;
-	ret |= twl4030_i2c_write_u8(TWL4030_CHIP_KEYPAD,
-				    TWL4030_KEYPAD_KEYP_CTRL_REG, ctrl);
+	ret |= twl4030_i2c_write_u8(TWL4030_CHIP_KEYPAD, ctrl,
+				TWL4030_KEYPAD_KEYP_CTRL_REG);
 	/* enable key event status */
-	ret |= twl4030_i2c_write_u8(TWL4030_CHIP_KEYPAD,
-				    TWL4030_KEYPAD_KEYP_IMR1, 0xfe);
+	ret |= twl4030_i2c_write_u8(TWL4030_CHIP_KEYPAD, 0xfe,
+				TWL4030_KEYPAD_KEYP_IMR1);
 	/* enable interrupt generation on rising and falling */
 	/* this is a workaround for qemu twl4030 emulation */
-	ret |= twl4030_i2c_write_u8(TWL4030_CHIP_KEYPAD,
-				    TWL4030_KEYPAD_KEYP_EDR, 0x57);
+	ret |= twl4030_i2c_write_u8(TWL4030_CHIP_KEYPAD, 0x57,
+				TWL4030_KEYPAD_KEYP_EDR);
 	/* enable ISR clear on read */
-	ret |= twl4030_i2c_write_u8(TWL4030_CHIP_KEYPAD,
-				    TWL4030_KEYPAD_KEYP_SIH_CTRL, 0x05);
+	ret |= twl4030_i2c_write_u8(TWL4030_CHIP_KEYPAD, 0x05,
+				TWL4030_KEYPAD_KEYP_SIH_CTRL);
 	return 0;
 }
 
@@ -594,7 +601,7 @@ static void rx51_kp_fill(u8 k, u8 mods)
  * Routine: rx51_kp_tstc
  * Description: Test if key was pressed (from buffer).
  */
-int rx51_kp_tstc(struct stdio_dev *sdev)
+int rx51_kp_tstc(void)
 {
 	u8 c, r, dk, i;
 	u8 intr;
@@ -608,8 +615,8 @@ int rx51_kp_tstc(struct stdio_dev *sdev)
 	for (i = 0; i < 2; i++) {
 
 		/* check interrupt register for events */
-		twl4030_i2c_read_u8(TWL4030_CHIP_KEYPAD,
-				    TWL4030_KEYPAD_KEYP_ISR1 + (2 * i), &intr);
+		twl4030_i2c_read_u8(TWL4030_CHIP_KEYPAD, &intr,
+				TWL4030_KEYPAD_KEYP_ISR1+(2*i));
 
 		/* no event */
 		if (!(intr&1))
@@ -650,10 +657,10 @@ int rx51_kp_tstc(struct stdio_dev *sdev)
  * Routine: rx51_kp_getc
  * Description: Get last pressed key (from buffer).
  */
-int rx51_kp_getc(struct stdio_dev *sdev)
+int rx51_kp_getc(void)
 {
 	keybuf_head %= KEYBUF_SIZE;
-	while (!rx51_kp_tstc(sdev))
+	while (!rx51_kp_tstc())
 		WATCHDOG_RESET();
 	return keybuf[keybuf_head++];
 }
@@ -664,13 +671,7 @@ int rx51_kp_getc(struct stdio_dev *sdev)
  */
 int board_mmc_init(bd_t *bis)
 {
-	omap_mmc_init(0, 0, 0, -1, -1);
-	omap_mmc_init(1, 0, 0, -1, -1);
+	omap_mmc_init(0, 0, 0);
+	omap_mmc_init(1, 0, 0);
 	return 0;
-}
-
-void board_mmc_power_init(void)
-{
-	twl4030_power_mmc_init(0);
-	twl4030_power_mmc_init(1);
 }

@@ -2,7 +2,23 @@
  * (C) Copyright 2000-2004
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 /*
@@ -144,6 +160,20 @@
 			  PLPRCR_S_MSK	 | \
 			  PLPRCR_MFI_MSK | \
 			  PLPRCR_PDF_MSK)
+
+/* Older chips (MPC860/862 et al) defines */
+#define PLPRCR_MF_MSK	0xFFF00000	/* Multiplication factor bits		*/
+#define PLPRCR_MF_SHIFT		20	/* Multiplication factor shift value	*/
+
+#define PLPRCR_SPLSS	0x00008000	/* SPLL Lock Status Sticky bit		*/
+#define PLPRCR_TMIST	0x00001000	/* Timers Interrupt Status		*/
+
+#define PLPRCR_LPM_MSK	0x00000300	/* Low Power Mode mask			*/
+#define PLPRCR_LPM_NORMAL 0x00000000	/* normal power management mode		*/
+#define PLPRCR_LPM_DOZE	  0x00000100	/* doze power management mode		*/
+#define PLPRCR_LPM_SLEEP  0x00000200	/* sleep power management mode		*/
+#define PLPRCR_LPM_DEEP_SLEEP 0x00000300 /* deep sleep power mgt mode		*/
+#define PLPRCR_LPM_DOWN	  0x00000300	/* down power management mode		*/
 
 /* Common defines */
 #define PLPRCR_TEXPS	0x00004000	/* TEXP Status				*/

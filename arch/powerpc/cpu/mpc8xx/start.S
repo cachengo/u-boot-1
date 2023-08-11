@@ -3,7 +3,23 @@
  *  Copyright (C) 1999	Magnus Damm <kieraypc01.p.y.kie.era.ericsson.se>
  *  Copyright (C) 2000,2001,2002 Wolfgang Denk <wd@denx.de>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 /*  U-Boot - Startup Code for PowerPC based Embedded Boards
@@ -25,6 +41,9 @@
 #include <config.h>
 #include <mpc8xx.h>
 #include <version.h>
+
+#define CONFIG_8xx 1		/* needed for Linux kernel header files */
+#define _LINUX_CONFIG_H 1	/* avoid reading Linux autoconf.h file	*/
 
 #include <ppc_asm.tmpl>
 #include <ppc_defs.h>
@@ -53,7 +72,7 @@
 	GOT_ENTRY(transfer_to_handler)
 
 	GOT_ENTRY(__init_end)
-	GOT_ENTRY(__bss_end)
+	GOT_ENTRY(__bss_end__)
 	GOT_ENTRY(__bss_start)
 	END_GOT
 
@@ -106,7 +125,12 @@ _start:
 	lis	r3, IDC_DISABLE@h	/* Disable data cache */
 	mtspr	DC_CST, r3
 
+#if !defined(CONFIG_SYS_DELAYED_ICACHE)
+					/* On IP860 and PCU E,
+					 * we cannot enable IC yet
+					 */
 	lis	r3, IDC_ENABLE@h	/* Enable instruction cache */
+#endif
 	mtspr	IC_CST, r3
 
 	/* invalidate all tlb's							*/
@@ -305,6 +329,123 @@ int_return:
 	SYNC
 	rfi
 
+/* Cache functions.
+*/
+	.globl	icache_enable
+icache_enable:
+	SYNC
+	lis	r3, IDC_INVALL@h
+	mtspr	IC_CST, r3
+	lis	r3, IDC_ENABLE@h
+	mtspr	IC_CST, r3
+	blr
+
+	.globl	icache_disable
+icache_disable:
+	SYNC
+	lis	r3, IDC_DISABLE@h
+	mtspr	IC_CST, r3
+	blr
+
+	.globl	icache_status
+icache_status:
+	mfspr	r3, IC_CST
+	srwi	r3, r3, 31	/* >>31 => select bit 0 */
+	blr
+
+	.globl	dcache_enable
+dcache_enable:
+#if 0
+	SYNC
+#endif
+#if 1
+	lis	r3, 0x0400		/* Set cache mode with MMU off */
+	mtspr	MD_CTR, r3
+#endif
+
+	lis	r3, IDC_INVALL@h
+	mtspr	DC_CST, r3
+#if 0
+	lis	r3, DC_SFWT@h
+	mtspr	DC_CST, r3
+#endif
+	lis	r3, IDC_ENABLE@h
+	mtspr	DC_CST, r3
+	blr
+
+	.globl	dcache_disable
+dcache_disable:
+	SYNC
+	lis	r3, IDC_DISABLE@h
+	mtspr	DC_CST, r3
+	lis	r3, IDC_INVALL@h
+	mtspr	DC_CST, r3
+	blr
+
+	.globl	dcache_status
+dcache_status:
+	mfspr	r3, DC_CST
+	srwi	r3, r3, 31	/* >>31 => select bit 0 */
+	blr
+
+	.globl	dc_read
+dc_read:
+	mtspr	DC_ADR, r3
+	mfspr	r3, DC_DAT
+	blr
+
+/*
+ * unsigned int get_immr (unsigned int mask)
+ *
+ * return (mask ? (IMMR & mask) : IMMR);
+ */
+	.globl	get_immr
+get_immr:
+	mr	r4,r3		/* save mask */
+	mfspr	r3, IMMR	/* IMMR */
+	cmpwi	0,r4,0		/* mask != 0 ? */
+	beq	4f
+	and	r3,r3,r4	/* IMMR & mask */
+4:
+	blr
+
+	.globl get_pvr
+get_pvr:
+	mfspr	r3, PVR
+	blr
+
+
+	.globl wr_ic_cst
+wr_ic_cst:
+	mtspr	IC_CST, r3
+	blr
+
+	.globl rd_ic_cst
+rd_ic_cst:
+	mfspr	r3, IC_CST
+	blr
+
+	.globl wr_ic_adr
+wr_ic_adr:
+	mtspr	IC_ADR, r3
+	blr
+
+
+	.globl wr_dc_cst
+wr_dc_cst:
+	mtspr	DC_CST, r3
+	blr
+
+	.globl rd_dc_cst
+rd_dc_cst:
+	mfspr	r3, DC_CST
+	blr
+
+	.globl wr_dc_adr
+wr_dc_adr:
+	mtspr	DC_ADR, r3
+	blr
+
 /*------------------------------------------------------------------------------*/
 
 /*
@@ -449,7 +590,7 @@ clear_bss:
 	 * Now clear BSS segment
 	 */
 	lwz	r3,GOT(__bss_start)
-	lwz	r4,GOT(__bss_end)
+	lwz	r4,GOT(__bss_end__)
 
 	cmplw	0, r3, r4
 	beq	6f

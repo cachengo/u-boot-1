@@ -2,13 +2,27 @@
  * (C) Copyright 2002
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #ifndef _ENVIRONMENT_H_
 #define _ENVIRONMENT_H_
-
-#include <linux/kconfig.h>
 
 /**************************************************************************
  *
@@ -18,9 +32,10 @@
  * shifts the remaining entries to the front. Replacing an entry is a
  * combination of deleting the old value and adding the new one.
  *
- * The environment is preceded by a 32 bit CRC over the data part.
+ * The environment is preceeded by a 32 bit CRC over the data part.
  *
- *************************************************************************/
+ **************************************************************************
+ */
 
 #if defined(CONFIG_ENV_IS_IN_FLASH)
 # ifndef	CONFIG_ENV_ADDR
@@ -60,12 +75,6 @@
 # endif
 #endif	/* CONFIG_ENV_IS_IN_FLASH */
 
-#if defined(CONFIG_ENV_IS_IN_MMC)
-# ifdef CONFIG_ENV_OFFSET_REDUND
-#  define CONFIG_SYS_REDUNDAND_ENVIRONMENT
-# endif
-#endif
-
 #if defined(CONFIG_ENV_IS_IN_NAND)
 # if defined(CONFIG_ENV_OFFSET_OOB)
 #  ifdef CONFIG_ENV_OFFSET_REDUND
@@ -86,24 +95,6 @@ extern unsigned long nand_env_oob_offset;
 #  error "Need to define CONFIG_ENV_SIZE when using CONFIG_ENV_IS_IN_NAND"
 # endif
 #endif /* CONFIG_ENV_IS_IN_NAND */
-
-#if defined(CONFIG_ENV_IS_IN_UBI)
-# ifndef CONFIG_ENV_UBI_PART
-#  error "Need to define CONFIG_ENV_UBI_PART when using CONFIG_ENV_IS_IN_UBI"
-# endif
-# ifndef CONFIG_ENV_UBI_VOLUME
-#  error "Need to define CONFIG_ENV_UBI_VOLUME when using CONFIG_ENV_IS_IN_UBI"
-# endif
-# if defined(CONFIG_ENV_UBI_VOLUME_REDUND)
-#  define CONFIG_SYS_REDUNDAND_ENVIRONMENT
-# endif
-# ifndef CONFIG_ENV_SIZE
-#  error "Need to define CONFIG_ENV_SIZE when using CONFIG_ENV_IS_IN_UBI"
-# endif
-# ifndef CONFIG_CMD_UBI
-#  error "Need to define CONFIG_CMD_UBI when using CONFIG_ENV_IS_IN_UBI"
-# endif
-#endif /* CONFIG_ENV_IS_IN_UBI */
 
 /* Embedded env is only supported for some flash types */
 #ifdef CONFIG_ENV_IS_EMBEDDED
@@ -143,12 +134,11 @@ extern unsigned long nand_env_oob_offset;
 # define ENV_HEADER_SIZE	(sizeof(uint32_t))
 #endif
 
-#ifdef CONFIG_ENV_AES
-/* Make sure the payload is multiple of AES block size */
-#define ENV_SIZE ((CONFIG_ENV_SIZE - ENV_HEADER_SIZE) & ~(16 - 1))
-#else
-#define ENV_SIZE (CONFIG_ENV_SIZE - ENV_HEADER_SIZE)
+#if defined(CONFIG_CMD_SAVEENV) && !defined(CONFIG_ENV_IS_NOWHERE)
+extern char *env_name_spec;
 #endif
+
+#define ENV_SIZE (CONFIG_ENV_SIZE - ENV_HEADER_SIZE)
 
 typedef struct environment_s {
 	uint32_t	crc;		/* CRC32 over data bytes	*/
@@ -156,12 +146,7 @@ typedef struct environment_s {
 	unsigned char	flags;		/* active/obsolete flags	*/
 #endif
 	unsigned char	data[ENV_SIZE]; /* Environment data		*/
-} env_t
-#ifdef CONFIG_ENV_AES
-/* Make sure the env is aligned to block size. */
-__attribute__((aligned(16)))
-#endif
-;
+} env_t;
 
 #ifdef ENV_IS_EMBEDDED
 extern env_t environment;
@@ -170,17 +155,11 @@ extern env_t environment;
 extern const unsigned char default_environment[];
 extern env_t *env_ptr;
 
+extern void env_relocate_spec(void);
+extern unsigned char env_get_char_spec(int);
+
 #if defined(CONFIG_NEEDS_MANUAL_RELOC)
 extern void env_reloc(void);
-#endif
-
-#ifdef CONFIG_ENV_IS_IN_MMC
-#include <mmc.h>
-
-extern int mmc_get_env_addr(struct mmc *mmc, int copy, u32 *env_addr);
-# ifdef CONFIG_SYS_MMC_ENV_PART
-extern uint mmc_get_env_part(struct mmc *mmc);
-# endif
 #endif
 
 #ifndef DO_DEPS_ONLY
@@ -190,100 +169,20 @@ extern uint mmc_get_env_part(struct mmc *mmc);
 #include <env_flags.h>
 #include <search.h>
 
-/* Value for environment validity */
-enum env_valid {
-	ENV_INVALID,	/* No valid environment */
-	ENV_VALID,	/* First or only environment is valid */
-	ENV_REDUND,	/* Redundant environment is valid */
-};
-
-enum env_location {
-	ENVL_EEPROM,
-	ENVL_EXT4,
-	ENVL_FAT,
-	ENVL_FLASH,
-	ENVL_MMC,
-	ENVL_NAND,
-	ENVL_NVRAM,
-	ENVL_ONENAND,
-	ENVL_REMOTE,
-	ENVL_SPI_FLASH,
-	ENVL_UBI,
-	ENVL_NOWHERE,
-
-	ENVL_COUNT,
-	ENVL_UNKNOWN,
-};
-
-struct env_driver {
-	const char *name;
-	enum env_location location;
-
-	/**
-	 * get_char() - Read a character from the environment
-	 *
-	 * This method is optional. If not provided, a default implementation
-	 * will read from gd->env_addr.
-	 *
-	 * @index: Index of character to read (0=first)
-	 * @return character read, or -ve on error
-	 */
-	int (*get_char)(int index);
-
-	/**
-	 * load() - Load the environment from storage
-	 *
-	 * This method is optional. If not provided, no environment will be
-	 * loaded.
-	 *
-	 * @return 0 if OK, -ve on error
-	 */
-	int (*load)(void);
-
-	/**
-	 * save() - Save the environment to storage
-	 *
-	 * This method is required for 'saveenv' to work.
-	 *
-	 * @return 0 if OK, -ve on error
-	 */
-	int (*save)(void);
-
-	/**
-	 * init() - Set up the initial pre-relocation environment
-	 *
-	 * This method is optional.
-	 *
-	 * @return 0 if OK, -ENOENT if no initial environment could be found,
-	 * other -ve on error
-	 */
-	int (*init)(void);
-};
-
-/* Declare a new environment location driver */
-#define U_BOOT_ENV_LOCATION(__name)					\
-	ll_entry_declare(struct env_driver, __name, env_driver)
-
-/* Declare the name of a location */
-#ifdef CONFIG_CMD_SAVEENV
-#define ENV_NAME(_name) .name = _name,
-#else
-#define ENV_NAME(_name)
-#endif
-
-#ifdef CONFIG_CMD_SAVEENV
-#define env_save_ptr(x) x
-#else
-#define env_save_ptr(x) NULL
-#endif
-
 extern struct hsearch_data env_htab;
+
+/* Function that returns a character from the environment */
+unsigned char env_get_char(int);
+
+/* Function that returns a pointer to a value from the environment */
+const unsigned char *env_get_addr(int);
+unsigned char env_get_char_memory(int index);
 
 /* Function that updates CRC of the enironment */
 void env_crc_update(void);
 
 /* Look up the variable from the default environment */
-char *env_get_default(const char *name);
+char *getenv_default(const char *name);
 
 /* [re]set to the default environment */
 void set_default_env(const char *s);
@@ -293,45 +192,6 @@ int set_default_vars(int nvars, char * const vars[]);
 
 /* Import from binary representation into hash table */
 int env_import(const char *buf, int check);
-
-/* Export from hash table into binary representation */
-int env_export(env_t *env_out);
-
-#ifdef CONFIG_SYS_REDUNDAND_ENVIRONMENT
-/* Select and import one of two redundant environments */
-int env_import_redund(const char *buf1, const char *buf2);
-#endif
-
-/**
- * env_driver_lookup_default() - Look up the default environment driver
- *
- * @return pointer to driver, or NULL if none (which should not happen)
- */
-struct env_driver *env_driver_lookup_default(void);
-
-/**
- * env_get_char() - Get a character from the early environment
- *
- * This reads from the pre-relocation environemnt
- *
- * @index: Index of character to read (0 = first)
- * @return character read, or -ve on error
- */
-int env_get_char(int index);
-
-/**
- * env_load() - Load the environment from storage
- *
- * @return 0 if OK, -ve on error
- */
-int env_load(void);
-
-/**
- * env_save() - Save the environment to storage
- *
- * @return 0 if OK, -ve on error
- */
-int env_save(void);
 
 #endif /* DO_DEPS_ONLY */
 

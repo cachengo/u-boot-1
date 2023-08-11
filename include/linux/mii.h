@@ -115,8 +115,6 @@
 #define EXPANSION_MFAULTS	0x0010	/* Multiple faults detected    */
 #define EXPANSION_RESV		0xffe0	/* Unused...		       */
 
-#define ESTATUS_1000_XFULL	0x8000	/* Can do 1000BX Full */
-#define ESTATUS_1000_XHALF	0x4000	/* Can do 1000BX Half */
 #define ESTATUS_1000_TFULL	0x2000	/* Can do 1000BT Full */
 #define ESTATUS_1000_THALF	0x1000	/* Can do 1000BT Half */
 
@@ -188,29 +186,6 @@ static inline unsigned int mii_duplex (unsigned int duplex_lock,
 	if (mii_nway_result(negotiated) & LPA_DUPLEX)
 		return 1;
 	return 0;
-}
-
-/**
- * mii_resolve_flowctrl_fdx
- * @lcladv: value of MII ADVERTISE register
- * @rmtadv: value of MII LPA register
- *
- * Resolve full duplex flow control as per IEEE 802.3-2005 table 28B-3
- */
-static inline u8 mii_resolve_flowctrl_fdx(u16 lcladv, u16 rmtadv)
-{
-	u8 cap = 0;
-
-	if (lcladv & rmtadv & ADVERTISE_PAUSE_CAP) {
-		cap = FLOW_CTRL_TX | FLOW_CTRL_RX;
-	} else if (lcladv & rmtadv & ADVERTISE_PAUSE_ASYM) {
-		if (lcladv & ADVERTISE_PAUSE_CAP)
-			cap = FLOW_CTRL_RX;
-		else if (rmtadv & ADVERTISE_PAUSE_CAP)
-			cap = FLOW_CTRL_TX;
-	}
-
-	return cap;
 }
 
 #endif /* __LINUX_MII_H__ */

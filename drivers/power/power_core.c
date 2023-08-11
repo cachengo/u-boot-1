@@ -7,7 +7,23 @@
  *
  * (C) Copyright 2008-2009 Freescale Semiconductor, Inc.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
@@ -23,7 +39,7 @@ int check_reg(struct pmic *p, u32 reg)
 	if (reg >= p->number_of_regs) {
 		printf("<reg num> = %d is invalid. Should be less than %d\n",
 		       reg, p->number_of_regs);
-		return -EINVAL;
+		return -1;
 	}
 
 	return 0;
@@ -34,7 +50,7 @@ int pmic_set_output(struct pmic *p, u32 reg, int out, int on)
 	u32 val;
 
 	if (pmic_reg_read(p, reg, &val))
-		return -ENOTSUPP;
+		return -1;
 
 	if (on)
 		val |= out;
@@ -42,7 +58,7 @@ int pmic_set_output(struct pmic *p, u32 reg, int out, int on)
 		val &= ~out;
 
 	if (pmic_reg_write(p, reg, val))
-		return -ENOTSUPP;
+		return -1;
 
 	return 0;
 }
@@ -59,7 +75,7 @@ static int pmic_dump(struct pmic *p)
 
 	if (!p) {
 		puts("Wrong PMIC name!\n");
-		return -ENODEV;
+		return -1;
 	}
 
 	pmic_show_info(p);
@@ -140,9 +156,6 @@ int do_pmic(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 		return CMD_RET_SUCCESS;
 	}
 
-	if (argc < 3)
-		return CMD_RET_USAGE;
-
 	name = argv[1];
 	cmd = argv[2];
 
@@ -187,21 +200,17 @@ int do_pmic(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 		if (argc < 4)
 			return CMD_RET_USAGE;
 
-		if (!p->pbat) {
-			printf("%s is not a battery\n", p->name);
-			return CMD_RET_FAILURE;
-		}
-
 		if (strcmp(argv[3], "state") == 0)
 			p->fg->fg_battery_check(p->pbat->fg, p);
 
 		if (strcmp(argv[3], "charge") == 0) {
-			printf("BAT: %s charging (ctrl+c to break)\n",
-			       p->name);
-			if (p->low_power_mode)
-				p->low_power_mode();
-			if (p->pbat->battery_charge)
-				p->pbat->battery_charge(p);
+			if (p->pbat) {
+				printf("PRINT BAT charge %s\n", p->name);
+				if (p->low_power_mode)
+					p->low_power_mode();
+				if (p->pbat->battery_charge)
+					p->pbat->battery_charge(p);
+			}
 		}
 
 		return CMD_RET_SUCCESS;

@@ -1,7 +1,23 @@
 /*
- * Copyright 2010-2011, 2013 Freescale Semiconductor, Inc.
+ * Copyright 2010-2011 Freescale Semiconductor, Inc.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
@@ -14,7 +30,7 @@
 #include <asm/cache.h>
 #include <asm/immap_85xx.h>
 #include <asm/fsl_pci.h>
-#include <fsl_ddr_sdram.h>
+#include <asm/fsl_ddr_sdram.h>
 #include <asm/io.h>
 #include <asm/fsl_law.h>
 #include <asm/fsl_lbc.h>
@@ -39,15 +55,8 @@
 #define GPIO_SLIC_PIN		30
 #define GPIO_SLIC_DATA		(1 << (31 - GPIO_SLIC_PIN))
 
-#if defined(CONFIG_TARGET_P1021RDB) && !defined(CONFIG_SYS_RAMBOOT)
-#define GPIO_DDR_RST_PORT	1
-#define GPIO_DDR_RST_PIN	8
-#define GPIO_DDR_RST_DATA	(1 << (31 - GPIO_DDR_RST_PIN))
 
-#define GPIO_2BIT_MASK		(0x3 << (32 - (GPIO_DDR_RST_PIN + 1) * 2))
-#endif
-
-#if defined(CONFIG_TARGET_P1025RDB) || defined(CONFIG_TARGET_P1021RDB)
+#if defined(CONFIG_P1025RDB) || defined(CONFIG_P1021RDB)
 #define PCA_IOPORT_I2C_ADDR		0x23
 #define PCA_IOPORT_OUTPUT_CMD		0x2
 #define PCA_IOPORT_CFG_CMD		0x6
@@ -58,14 +67,14 @@
 const qe_iop_conf_t qe_iop_conf_tab[] = {
 	/* GPIO */
 	{1,   1, 2, 0, 0}, /* GPIO7/PB1   - LOAD_DEFAULT_N */
-#if defined(CONFIG_TARGET_P1021RDB) && !defined(CONFIG_SYS_RAMBOOT)
+#if 0
 	{1,   8, 1, 1, 0}, /* GPIO10/PB8  - DDR_RST */
 #endif
 	{0,  15, 1, 0, 0}, /* GPIO11/A15  - WDI */
 	{GPIO_GETH_SW_PORT, GPIO_GETH_SW_PIN, 1, 0, 0},	/* RST_GETH_SW_N */
 	{GPIO_SLIC_PORT, GPIO_SLIC_PIN, 1, 0, 0},	/* RST_SLIC_N */
 
-#ifdef CONFIG_TARGET_P1025RDB
+#ifdef CONFIG_P1025RDB
 	/* QE_MUX_MDC */
 	{1,  19, 1, 0, 1}, /* QE_MUX_MDC               */
 
@@ -150,16 +159,6 @@ void board_gpio_init(void)
 	ccsr_gur_t *gur = (void *)(CONFIG_SYS_MPC85xx_GUTS_ADDR);
 	par_io_t *par_io = (par_io_t *) &(gur->qe_par_io);
 
-#if defined(CONFIG_TARGET_P1021RDB) && !defined(CONFIG_SYS_RAMBOOT)
-	/* reset DDR3 */
-	setbits_be32(&par_io[GPIO_DDR_RST_PORT].cpdat, GPIO_DDR_RST_DATA);
-	udelay(1000);
-	clrbits_be32(&par_io[GPIO_DDR_RST_PORT].cpdat, GPIO_DDR_RST_DATA);
-	udelay(1000);
-	setbits_be32(&par_io[GPIO_DDR_RST_PORT].cpdat, GPIO_DDR_RST_DATA);
-	/* disable CE_PB8 */
-	clrbits_be32(&par_io[GPIO_DDR_RST_PORT].cpdir1, GPIO_2BIT_MASK);
-#endif
 	/* Enable VSC7385 switch */
 	setbits_be32(&par_io[GPIO_GETH_SW_PORT].cpdat, GPIO_GETH_SW_DATA);
 
@@ -232,7 +231,7 @@ int checkboard(void)
 		in_8(&cpld_data->pcba_rev) & 0x0F);
 
 	/* Initialize i2c early for rom_loc and flash bank information */
-	i2c_set_bus_num(CONFIG_SYS_SPD_BUS_NUM);
+	i2c_init(CONFIG_SYS_I2C_SPEED, CONFIG_SYS_I2C_SLAVE);
 
 	if (i2c_read(CONFIG_SYS_I2C_PCA9557_ADDR, 0, 1, &in, 1) < 0 ||
 	    i2c_read(CONFIG_SYS_I2C_PCA9557_ADDR, 1, 1, &out, 1) < 0 ||
@@ -288,7 +287,7 @@ void pci_init_board(void)
 int board_early_init_r(void)
 {
 	const unsigned int flashbase = CONFIG_SYS_FLASH_BASE;
-	int flash_esel = find_tlb_idx((void *)flashbase, 1);
+	const u8 flash_esel = find_tlb_idx((void *)flashbase, 1);
 
 	/*
 	 * Remap Boot flash region to caching-inhibited
@@ -299,14 +298,8 @@ int board_early_init_r(void)
 	flush_dcache();
 	invalidate_icache();
 
-	if (flash_esel == -1) {
-		/* very unlikely unless something is messed up */
-		puts("Error: Could not find TLB for FLASH BASE\n");
-		flash_esel = 2;	/* give our best effort to continue */
-	} else {
-		/* invalidate existing TLB entry for flash */
-		disable_tlb(flash_esel);
-	}
+	/* invalidate existing TLB entry for flash */
+	disable_tlb(flash_esel);
 
 	set_tlb(1, flashbase, CONFIG_SYS_FLASH_BASE_PHYS, /* tlb, epn, rpn */
 		MAS3_SX|MAS3_SW|MAS3_SR, MAS2_I|MAS2_G,/* perms, wimge */
@@ -350,8 +343,7 @@ int board_eth_init(bd_t *bis)
 
 #ifdef CONFIG_VSC7385_ENET
 	/* If a VSC7385 microcode image is present, then upload it. */
-	tmp = env_get("vscfw_addr");
-	if (tmp) {
+	if ((tmp = getenv("vscfw_addr")) != NULL) {
 		vscfw_addr = simple_strtoul(tmp, NULL, 16);
 		printf("uploading VSC7385 microcode from %x\n", vscfw_addr);
 		if (vsc7385_upload_firmware((void *) vscfw_addr,
@@ -361,7 +353,7 @@ int board_eth_init(bd_t *bis)
 		puts("No address specified for VSC7385 microcode.\n");
 #endif
 
-	mdio_info.regs = TSEC_GET_MDIO_REGS_BASE(1);
+	mdio_info.regs = (struct tsec_mii_mng *)CONFIG_SYS_MDIO_BASE_ADDR;
 	mdio_info.name = DEFAULT_MII_NAME;
 
 	fsl_pq_mdio_init(bis, &mdio_info);
@@ -380,7 +372,7 @@ int board_eth_init(bd_t *bis)
 }
 
 #if defined(CONFIG_QE) && \
-	(defined(CONFIG_TARGET_P1025RDB) || defined(CONFIG_TARGET_P1021RDB))
+	(defined(CONFIG_P1025RDB) || defined(CONFIG_P1021RDB))
 static void fdt_board_fixup_qe_pins(void *blob)
 {
 	unsigned int oldbus;
@@ -425,22 +417,15 @@ static void fdt_board_fixup_qe_pins(void *blob)
 #endif
 
 #ifdef CONFIG_OF_BOARD_SETUP
-int ft_board_setup(void *blob, bd_t *bd)
+void ft_board_setup(void *blob, bd_t *bd)
 {
 	phys_addr_t base;
 	phys_size_t size;
-#if defined(CONFIG_TARGET_P1020RDB_PD) || defined(CONFIG_TARGET_P1020RDB_PC)
-	const char *soc_usb_compat = "fsl-usb2-dr";
-	int usb_err, usb1_off, usb2_off;
-#endif
-#if defined(CONFIG_SDCARD) || defined(CONFIG_SPIFLASH)
-	int err;
-#endif
 
 	ft_cpu_setup(blob, bd);
 
-	base = env_get_bootm_low();
-	size = env_get_bootm_size();
+	base = getenv_bootm_low();
+	size = getenv_bootm_size();
 
 	fdt_fixup_memory(blob, (u64)base, (u64)size);
 
@@ -449,59 +434,13 @@ int ft_board_setup(void *blob, bd_t *bd)
 #ifdef CONFIG_QE
 	do_fixup_by_compat(blob, "fsl,qe", "status", "okay",
 			sizeof("okay"), 0);
-#if defined(CONFIG_TARGET_P1025RDB) || defined(CONFIG_TARGET_P1021RDB)
+#if defined(CONFIG_P1025RDB) || defined(CONFIG_P1021RDB)
 	fdt_board_fixup_qe_pins(blob);
 #endif
 #endif
 
 #if defined(CONFIG_HAS_FSL_DR_USB)
-	fsl_fdt_fixup_dr_usb(blob, bd);
+	fdt_fixup_dr_usb(blob, bd);
 #endif
-
-#if defined(CONFIG_SDCARD) || defined(CONFIG_SPIFLASH)
-	/* Delete eLBC node as it is muxed with USB2 controller */
-	if (hwconfig("usb2")) {
-		const char *soc_elbc_compat = "fsl,p1020-elbc";
-		int off = fdt_node_offset_by_compatible(blob, -1,
-				soc_elbc_compat);
-		if (off < 0) {
-			printf("WARNING: could not find compatible node %s\n",
-			       soc_elbc_compat);
-			return off;
-		}
-		err = fdt_del_node(blob, off);
-		if (err < 0) {
-			printf("WARNING: could not remove %s\n",
-			       soc_elbc_compat);
-			return err;
-		}
-		return 0;
-	}
-#endif
-
-#if defined(CONFIG_TARGET_P1020RDB_PD) || defined(CONFIG_TARGET_P1020RDB_PC)
-/* Delete USB2 node as it is muxed with eLBC */
-	usb1_off = fdt_node_offset_by_compatible(blob, -1,
-		soc_usb_compat);
-	if (usb1_off < 0) {
-		printf("WARNING: could not find compatible node %s\n",
-		       soc_usb_compat);
-		return usb1_off;
-	}
-	usb2_off = fdt_node_offset_by_compatible(blob, usb1_off,
-			soc_usb_compat);
-	if (usb2_off < 0) {
-		printf("WARNING: could not find compatible node %s\n",
-		       soc_usb_compat);
-		return usb2_off;
-	}
-	usb_err = fdt_del_node(blob, usb2_off);
-	if (usb_err < 0) {
-		printf("WARNING: could not remove %s\n", soc_usb_compat);
-		return usb_err;
-	}
-#endif
-
-	return 0;
 }
 #endif

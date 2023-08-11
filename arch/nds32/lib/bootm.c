@@ -3,7 +3,20 @@
  * Shawn Lin, Andes Technology Corporation <nobuhiro@andestech.com>
  * Macpaul Lin, Andes Technology Corporation <macpaul@andestech.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307	 USA
+ *
  */
 
 #include <common.h>
@@ -11,16 +24,8 @@
 #include <image.h>
 #include <u-boot/zlib.h>
 #include <asm/byteorder.h>
-#include <asm/bootm.h>
-#include <asm/setup.h>
 
 DECLARE_GLOBAL_DATA_PTR;
-
-int arch_fixup_fdt(void *blob)
-{
-	return 0;
-}
-
 
 #if defined(CONFIG_SETUP_MEMORY_TAGS) || \
 	defined(CONFIG_CMDLINE_TAG) || \
@@ -50,21 +55,15 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
 	void	(*theKernel)(int zero, int arch, uint params);
 
 #ifdef CONFIG_CMDLINE_TAG
-	char *commandline = env_get("bootargs");
+	char *commandline = getenv("bootargs");
 #endif
-
-	/*
-	 * allow the PREP bootm subcommand, it is required for bootm to work
-	 */
-	if (flag & BOOTM_STATE_OS_PREP)
-		return 0;
 
 	if ((flag != 0) && (flag != BOOTM_STATE_OS_GO))
 		return 1;
 
 	theKernel = (void (*)(int, int, uint))images->ep;
 
-	s = env_get("machid");
+	s = getenv("machid");
 	if (s) {
 		machid = simple_strtoul(s, NULL, 16);
 		printf("Using machid 0x%x from environment\n", machid);
@@ -75,15 +74,6 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
 	debug("## Transferring control to Linux (at address %08lx) ...\n",
 	       (ulong)theKernel);
 
-	if (IMAGE_ENABLE_OF_LIBFDT && images->ft_len) {
-#ifdef CONFIG_OF_LIBFDT
-		debug("using: FDT\n");
-		if (image_setup_linux(images)) {
-			printf("FDT creation failed! hanging...");
-			hang();
-		}
-#endif
-	} else if (BOOTM_ENABLE_TAGS) {
 #if defined(CONFIG_SETUP_MEMORY_TAGS) || \
 	defined(CONFIG_CMDLINE_TAG) || \
 	defined(CONFIG_INITRD_TAG) || \
@@ -118,16 +108,15 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
 		udc_disconnect();
 	}
 #endif
-	}
+
 	cleanup_before_linux();
-	if (IMAGE_ENABLE_OF_LIBFDT && images->ft_len)
-		theKernel(0, machid, (unsigned long)images->ft_addr);
-	else
-		theKernel(0, machid, bd->bi_boot_params);
+
+	theKernel(0, machid, bd->bi_boot_params);
 	/* does not return */
 
 	return 1;
 }
+
 
 #if defined(CONFIG_SETUP_MEMORY_TAGS) || \
 	defined(CONFIG_CMDLINE_TAG) || \
@@ -148,6 +137,7 @@ static void setup_start_tag(bd_t *bd)
 	params = tag_next(params);
 }
 
+
 #ifdef CONFIG_SETUP_MEMORY_TAGS
 static void setup_memory_tags(bd_t *bd)
 {
@@ -164,6 +154,7 @@ static void setup_memory_tags(bd_t *bd)
 	}
 }
 #endif /* CONFIG_SETUP_MEMORY_TAGS */
+
 
 static void setup_commandline_tag(bd_t *bd, char *commandline)
 {
@@ -191,6 +182,7 @@ static void setup_commandline_tag(bd_t *bd, char *commandline)
 
 	params = tag_next(params);
 }
+
 
 #ifdef CONFIG_INITRD_TAG
 static void setup_initrd_tag(bd_t *bd, ulong initrd_start, ulong initrd_end)
@@ -238,6 +230,7 @@ void setup_revision_tag(struct tag **in_params)
 	params = tag_next(params);
 }
 #endif  /* CONFIG_REVISION_TAG */
+
 
 static void setup_end_tag(bd_t *bd)
 {

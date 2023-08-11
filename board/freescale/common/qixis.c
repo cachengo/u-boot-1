@@ -2,39 +2,20 @@
  * Copyright 2011 Freescale Semiconductor
  * Author: Shengzhou Liu <Shengzhou.Liu@freescale.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
  *
  * This file provides support for the QIXIS of some Freescale reference boards.
+ *
  */
 
 #include <common.h>
 #include <command.h>
 #include <asm/io.h>
-#include <linux/time.h>
-#include <i2c.h>
 #include "qixis.h"
 
-#ifndef QIXIS_LBMAP_BRDCFG_REG
-/*
- * For consistency with existing platforms
- */
-#define QIXIS_LBMAP_BRDCFG_REG 0x00
-#endif
-
-#ifdef CONFIG_SYS_I2C_FPGA_ADDR
-u8 qixis_read_i2c(unsigned int reg)
-{
-	return i2c_reg_read(CONFIG_SYS_I2C_FPGA_ADDR, reg);
-}
-
-void qixis_write_i2c(unsigned int reg, u8 value)
-{
-	u8 val = value;
-	i2c_reg_write(CONFIG_SYS_I2C_FPGA_ADDR, reg, val);
-}
-#endif
-
-#ifdef QIXIS_BASE
 u8 qixis_read(unsigned int reg)
 {
 	void *p = (void *)QIXIS_BASE;
@@ -48,93 +29,6 @@ void qixis_write(unsigned int reg, u8 value)
 
 	out_8(p + reg, value);
 }
-#endif
-
-u16 qixis_read_minor(void)
-{
-	u16 minor;
-
-	/* this data is in little endian */
-	QIXIS_WRITE(tagdata, 5);
-	minor = QIXIS_READ(tagdata);
-	QIXIS_WRITE(tagdata, 6);
-	minor += QIXIS_READ(tagdata) << 8;
-
-	return minor;
-}
-
-char *qixis_read_time(char *result)
-{
-	time_t time = 0;
-	int i;
-
-	/* timestamp is in 32-bit big endian */
-	for (i = 8; i <= 11; i++) {
-		QIXIS_WRITE(tagdata, i);
-		time =  (time << 8) + QIXIS_READ(tagdata);
-	}
-
-	return ctime_r(&time, result);
-}
-
-char *qixis_read_tag(char *buf)
-{
-	int i;
-	char tag, *ptr = buf;
-
-	for (i = 16; i <= 63; i++) {
-		QIXIS_WRITE(tagdata, i);
-		tag = QIXIS_READ(tagdata);
-		*(ptr++) = tag;
-		if (!tag)
-			break;
-	}
-	if (i > 63)
-		*ptr = '\0';
-
-	return buf;
-}
-
-/*
- * return the string of binary of u8 in the format of
- * 1010 10_0. The masked bit is filled as underscore.
- */
-const char *byte_to_binary_mask(u8 val, u8 mask, char *buf)
-{
-	char *ptr;
-	int i;
-
-	ptr = buf;
-	for (i = 0x80; i > 0x08 ; i >>= 1, ptr++)
-		*ptr = (val & i) ? '1' : ((mask & i) ? '_' : '0');
-	*(ptr++) = ' ';
-	for (i = 0x08; i > 0 ; i >>= 1, ptr++)
-		*ptr = (val & i) ? '1' : ((mask & i) ? '_' : '0');
-
-	*ptr = '\0';
-
-	return buf;
-}
-
-#ifdef QIXIS_RST_FORCE_MEM
-void board_assert_mem_reset(void)
-{
-	u8 rst;
-
-	rst = QIXIS_READ(rst_frc[0]);
-	if (!(rst & QIXIS_RST_FORCE_MEM))
-		QIXIS_WRITE(rst_frc[0], rst | QIXIS_RST_FORCE_MEM);
-}
-
-void board_deassert_mem_reset(void)
-{
-	u8 rst;
-
-	rst = QIXIS_READ(rst_frc[0]);
-	if (rst & QIXIS_RST_FORCE_MEM)
-		QIXIS_WRITE(rst_frc[0], rst & ~QIXIS_RST_FORCE_MEM);
-}
-#endif
 
 void qixis_reset(void)
 {
@@ -147,25 +41,27 @@ void qixis_bank_reset(void)
 	QIXIS_WRITE(rcfg_ctl, QIXIS_RCFG_CTL_RECONFIG_START);
 }
 
-static void __maybe_unused set_lbmap(int lbmap)
+/* Set the boot bank to the power-on default bank */
+void clear_altbank(void)
 {
 	u8 reg;
 
-	reg = QIXIS_READ(brdcfg[QIXIS_LBMAP_BRDCFG_REG]);
-	reg = (reg & ~QIXIS_LBMAP_MASK) | lbmap;
-	QIXIS_WRITE(brdcfg[QIXIS_LBMAP_BRDCFG_REG], reg);
+	reg = QIXIS_READ(brdcfg[0]);
+	reg = (reg & ~QIXIS_LBMAP_MASK) | QIXIS_LBMAP_DFLTBANK;
+	QIXIS_WRITE(brdcfg[0], reg);
 }
 
-static void __maybe_unused set_rcw_src(int rcw_src)
+/* Set the boot bank to the alternate bank */
+void set_altbank(void)
 {
 	u8 reg;
 
-	reg = QIXIS_READ(dutcfg[1]);
-	reg = (reg & ~1) | (rcw_src & 1);
-	QIXIS_WRITE(dutcfg[1], reg);
-	QIXIS_WRITE(dutcfg[0], (rcw_src >> 1) & 0xff);
+	reg = QIXIS_READ(brdcfg[0]);
+	reg = (reg & ~QIXIS_LBMAP_MASK) | QIXIS_LBMAP_ALTBANK;
+	QIXIS_WRITE(brdcfg[0], reg);
 }
 
+#ifdef DEBUG
 static void qixis_dump_regs(void)
 {
 	int i;
@@ -195,69 +91,18 @@ static void qixis_dump_regs(void)
 	printf("stat_sys = %02x\n", QIXIS_READ(stat_sys));
 	printf("stat_alrm = %02x\n", QIXIS_READ(stat_alrm));
 }
-
-static void __qixis_dump_switch(void)
-{
-	puts("Reverse engineering switch is not implemented for this board\n");
-}
-
-void qixis_dump_switch(void)
-	__attribute__((weak, alias("__qixis_dump_switch")));
+#endif
 
 int qixis_reset_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 {
 	int i;
 
 	if (argc <= 1) {
-		set_lbmap(QIXIS_LBMAP_DFLTBANK);
+		clear_altbank();
 		qixis_reset();
 	} else if (strcmp(argv[1], "altbank") == 0) {
-		set_lbmap(QIXIS_LBMAP_ALTBANK);
+		set_altbank();
 		qixis_bank_reset();
-	} else if (strcmp(argv[1], "nand") == 0) {
-#ifdef QIXIS_LBMAP_NAND
-		QIXIS_WRITE(rst_ctl, 0x30);
-		QIXIS_WRITE(rcfg_ctl, 0);
-		set_lbmap(QIXIS_LBMAP_NAND);
-		set_rcw_src(QIXIS_RCW_SRC_NAND);
-		QIXIS_WRITE(rcfg_ctl, 0x20);
-		QIXIS_WRITE(rcfg_ctl, 0x21);
-#else
-		printf("Not implemented\n");
-#endif
-	} else if (strcmp(argv[1], "sd") == 0) {
-#ifdef QIXIS_LBMAP_SD
-		QIXIS_WRITE(rst_ctl, 0x30);
-		QIXIS_WRITE(rcfg_ctl, 0);
-		set_lbmap(QIXIS_LBMAP_SD);
-		set_rcw_src(QIXIS_RCW_SRC_SD);
-		QIXIS_WRITE(rcfg_ctl, 0x20);
-		QIXIS_WRITE(rcfg_ctl, 0x21);
-#else
-		printf("Not implemented\n");
-#endif
-	} else if (strcmp(argv[1], "sd_qspi") == 0) {
-#ifdef QIXIS_LBMAP_SD_QSPI
-		QIXIS_WRITE(rst_ctl, 0x30);
-		QIXIS_WRITE(rcfg_ctl, 0);
-		set_lbmap(QIXIS_LBMAP_SD_QSPI);
-		set_rcw_src(QIXIS_RCW_SRC_SD);
-		qixis_write_i2c(offsetof(struct qixis, rcfg_ctl), 0x20);
-		qixis_write_i2c(offsetof(struct qixis, rcfg_ctl), 0x21);
-#else
-		printf("Not implemented\n");
-#endif
-	} else if (strcmp(argv[1], "qspi") == 0) {
-#ifdef QIXIS_LBMAP_QSPI
-		QIXIS_WRITE(rst_ctl, 0x30);
-		QIXIS_WRITE(rcfg_ctl, 0);
-		set_lbmap(QIXIS_LBMAP_QSPI);
-		set_rcw_src(QIXIS_RCW_SRC_QSPI);
-		qixis_write_i2c(offsetof(struct qixis, rcfg_ctl), 0x20);
-		qixis_write_i2c(offsetof(struct qixis, rcfg_ctl), 0x21);
-#else
-		printf("Not implemented\n");
-#endif
 	} else if (strcmp(argv[1], "watchdog") == 0) {
 		static char *period[9] = {"2s", "4s", "8s", "16s", "32s",
 					  "1min", "2min", "4min", "8min"};
@@ -277,13 +122,16 @@ int qixis_reset_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 				return 0;
 			}
 		}
-	} else if (strcmp(argv[1], "dump") == 0) {
+	}
+
+#ifdef DEBUG
+	else if (strcmp(argv[1], "dump") == 0) {
 		qixis_dump_regs();
 		return 0;
-	} else if (strcmp(argv[1], "switch") == 0) {
-		qixis_dump_switch();
-		return 0;
-	} else {
+	}
+#endif
+
+	else {
 		printf("Invalid option: %s\n", argv[1]);
 		return 1;
 	}
@@ -296,12 +144,9 @@ U_BOOT_CMD(
 	"Reset the board using the FPGA sequencer",
 	"- hard reset to default bank\n"
 	"qixis_reset altbank - reset to alternate bank\n"
-	"qixis_reset nand - reset to nand\n"
-	"qixis_reset sd - reset to sd\n"
-	"qixis_reset sd_qspi - reset to sd with qspi support\n"
-	"qixis_reset qspi - reset to qspi\n"
 	"qixis watchdog <watchdog_period> - set the watchdog period\n"
 	"	period: 1s 2s 4s 8s 16s 32s 1min 2min 4min 8min\n"
+#ifdef DEBUG
 	"qixis_reset dump - display the QIXIS registers\n"
-	"qixis_reset switch - display switch\n"
+#endif
 	);

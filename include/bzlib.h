@@ -68,10 +68,7 @@
 
 /* Configure for U-Boot environment */
 #define BZ_NO_STDIO
-
-#ifndef CONFIG_SANDBOX
 #define BZ_NO_COMPRESS
-#endif
 /* End of configuration for U-Boot environment */
 
 #ifdef __cplusplus
@@ -258,6 +255,16 @@ BZ_EXTERN int BZ_API(BZ2_bzBuffToBuffCompress) (
       int           blockSize100k,
       int           verbosity,
       int           workFactor
+   );
+
+BZ_EXTERN int BZ_API(BZ2_bzBuffToBuffDecompress_extended) (
+      char*         dest,
+      unsigned int* destLen,
+      char*         source,
+      unsigned int  sourceLen,
+      unsigned int* total_in,
+      int           small,
+      int           verbosity
    );
 
 BZ_EXTERN int BZ_API(BZ2_bzBuffToBuffDecompress) (

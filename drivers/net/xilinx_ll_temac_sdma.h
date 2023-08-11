@@ -11,7 +11,10 @@
  * Copyright (C) 2008 Nissin Systems Co.,Ltd.
  * March 2008 created
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
  *
  * [0]: http://www.xilinx.com/support/documentation
  *
@@ -240,6 +243,17 @@ enum dmac_ctrl {
 #define DMA_CONTROL_TXOCEID	(1 << 3)
 #define DMA_CONTROL_TPE		(1 << 2)
 #define DMA_CONTROL_RESET	(1 << 0)
+
+#if defined(CONFIG_XILINX_440) || defined(CONFIG_XILINX_405)
+
+/* Xilinx Device Control Register (DCR) in/out accessors */
+unsigned ll_temac_xldcr_in32(phys_addr_t addr);
+void ll_temac_xldcr_out32(phys_addr_t addr, unsigned value);
+
+/* collect all register addresses for Xilinx DCR in/out accessors */
+void ll_temac_collect_xldcr_sdma_reg_addr(struct eth_device *dev);
+
+#endif /* CONFIG_XILINX_440 || CONFIG_XILINX_405 */
 
 /* Xilinx Processor Local Bus (PLB) in/out accessors */
 unsigned ll_temac_xlplb_in32(phys_addr_t base);

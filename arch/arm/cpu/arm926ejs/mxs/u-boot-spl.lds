@@ -8,7 +8,23 @@
  * (C) Copyright 2002
  * Gary Jennejohn, DENX Software Engineering, <garyj@denx.de>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")
@@ -16,14 +32,13 @@ OUTPUT_ARCH(arm)
 ENTRY(_start)
 SECTIONS
 {
-	. = CONFIG_SPL_TEXT_BASE;
+	. = 0x00000000;
 
 	. = ALIGN(4);
 	.text	:
 	{
-		*(.vectors)
-		arch/arm/cpu/arm926ejs/mxs/start.o	(.text*)
-		*(.text*)
+		arch/arm/cpu/arm926ejs/mxs/start.o	(.text)
+		*(.text)
 	}
 
 	. = ALIGN(4);
@@ -31,7 +46,13 @@ SECTIONS
 
 	. = ALIGN(4);
 	.data : {
-		*(.data*)
+		*(.data)
+	}
+
+	. = ALIGN(4);
+
+	.u_boot_list : {
+		#include <u-boot.lst>
 	}
 
 	. = ALIGN(4);
@@ -42,28 +63,26 @@ SECTIONS
 		__rel_dyn_end = .;
 	}
 
+	.dynsym : {
+		__dynsym_start = .;
+		*(.dynsym)
+	}
+
 	.bss : {
 		. = ALIGN(4);
 		__bss_start = .;
 		*(.bss*)
 		. = ALIGN(4);
-		__bss_end = .;
+		__bss_end__ = .;
 	}
 
-	.end :
-	{
-		*(.__end)
-	}
+	_end = .;
 
-	_image_binary_end = .;
-
-	.dynsym _image_binary_end : { *(.dynsym) }
-	.dynbss : { *(.dynbss) }
-	.dynstr : { *(.dynstr*) }
-	.dynamic : { *(.dynamic*) }
-	.hash : { *(.hash*) }
-	.plt : { *(.plt*) }
-	.interp : { *(.interp*) }
-	.gnu : { *(.gnu*) }
-	.ARM.exidx : { *(.ARM.exidx*) }
+	/DISCARD/ : { *(.dynstr*) }
+	/DISCARD/ : { *(.dynsym*) }
+	/DISCARD/ : { *(.dynamic*) }
+	/DISCARD/ : { *(.hash*) }
+	/DISCARD/ : { *(.plt*) }
+	/DISCARD/ : { *(.interp*) }
+	/DISCARD/ : { *(.gnu*) }
 }

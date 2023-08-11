@@ -9,7 +9,18 @@
  * Copyright (C) 2011 Marek Vasut <marek.vasut@gmail.com>
  * on behalf of DENX Software Engineering GmbH
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  */
 
 #include <common.h>
@@ -32,14 +43,14 @@ DECLARE_GLOBAL_DATA_PTR;
 int board_early_init_f(void)
 {
 	/* IO0 clock at 480MHz */
-	mxs_set_ioclk(MXC_IOCLK0, 480000);
+	mx28_set_ioclk(MXC_IOCLK0, 480000);
 	/* IO1 clock at 480MHz */
-	mxs_set_ioclk(MXC_IOCLK1, 480000);
+	mx28_set_ioclk(MXC_IOCLK1, 480000);
 
 	/* SSP0 clock at 96MHz */
-	mxs_set_sspclk(MXC_SSPCLK0, 96000, 0);
+	mx28_set_sspclk(MXC_SSPCLK0, 96000, 0);
 	/* SSP2 clock at 160MHz */
-	mxs_set_sspclk(MXC_SSPCLK2, 160000, 0);
+	mx28_set_sspclk(MXC_SSPCLK2, 160000, 0);
 
 #ifdef	CONFIG_CMD_USB
 	mxs_iomux_setup_pad(MX28_PAD_SSP2_SS1__USB1_OVERCURRENT);
@@ -47,12 +58,6 @@ int board_early_init_f(void)
 			MXS_PAD_4MA | MXS_PAD_3V3 | MXS_PAD_NOPULL);
 	gpio_direction_output(MX28_PAD_AUART2_RX__GPIO_3_8, 1);
 #endif
-
-	/* Power on LCD */
-	gpio_direction_output(MX28_PAD_LCD_RESET__GPIO_3_30, 1);
-
-	/* Set contrast to maximum */
-	gpio_direction_output(MX28_PAD_PWM2__GPIO_3_18, 1);
 
 	return 0;
 }
@@ -89,7 +94,7 @@ int board_mmc_init(bd_t *bis)
 	/* Configure MMC0 Power Enable */
 	gpio_direction_output(MX28_PAD_PWM3__GPIO_3_28, 0);
 
-	return mxsmmc_initialize(bis, 0, mx28evk_mmc_wp, NULL);
+	return mxsmmc_initialize(bis, 0, mx28evk_mmc_wp);
 }
 #endif
 
@@ -103,12 +108,10 @@ int board_eth_init(bd_t *bis)
 	int ret;
 
 	ret = cpu_eth_init(bis);
-	if (ret)
-		return ret;
 
 	/* MX28EVK uses ENET_CLK PAD to drive FEC clock */
 	writel(CLKCTRL_ENET_TIME_SEL_RMII_CLK | CLKCTRL_ENET_CLK_OUT_EN,
-	       &clkctrl_regs->hw_clkctrl_enet);
+					&clkctrl_regs->hw_clkctrl_enet);
 
 	/* Power-on FECs */
 	gpio_direction_output(MX28_PAD_SSP1_DATA3__GPIO_2_15, 0);

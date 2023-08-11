@@ -102,31 +102,6 @@ char * strncpy(char * dest,const char *src,size_t count)
 }
 #endif
 
-#ifndef __HAVE_ARCH_STRLCPY
-/**
- * strlcpy - Copy a C-string into a sized buffer
- * @dest: Where to copy the string to
- * @src: Where to copy the string from
- * @size: size of destination buffer
- *
- * Compatible with *BSD: the result is always a valid
- * NUL-terminated string that fits in the buffer (unless,
- * of course, the buffer size is zero). It does not pad
- * out the result like strncpy() does.
- */
-size_t strlcpy(char *dest, const char *src, size_t size)
-{
-	size_t ret = strlen(src);
-
-	if (size) {
-		size_t len = (ret >= size) ? size - 1 : ret;
-		memcpy(dest, src, len);
-		dest[len] = '\0';
-	}
-	return ret;
-}
-#endif
-
 #ifndef __HAVE_ARCH_STRCAT
 /**
  * strcat - Append one %NUL-terminated string to another
@@ -230,14 +205,6 @@ char * strchr(const char * s, int c)
 }
 #endif
 
-const char *strchrnul(const char *s, int c)
-{
-	for (; *s != (char)c; ++s)
-		if (*s == '\0')
-			break;
-	return s;
-}
-
 #ifndef __HAVE_ARCH_STRRCHR
 /**
  * strrchr - Find the last occurrence of a character in a string
@@ -283,30 +250,6 @@ size_t strnlen(const char * s, size_t count)
 	for (sc = s; count-- && *sc != '\0'; ++sc)
 		/* nothing */;
 	return sc - s;
-}
-#endif
-
-#ifndef __HAVE_ARCH_STRCSPN
-/**
- * strcspn - Calculate the length of the initial substring of @s which does
- * not contain letters in @reject
- * @s: The string to be searched
- * @reject: The string to avoid
- */
-size_t strcspn(const char *s, const char *reject)
-{
-	const char *p;
-	const char *r;
-	size_t count = 0;
-
-	for (p = s; *p != '\0'; ++p) {
-		for (r = reject; *r != '\0'; ++r) {
-			if (*p == *r)
-				return count;
-		}
-		++count;
-	}
-	return count;
 }
 #endif
 
@@ -469,10 +412,8 @@ char *strswab(const char *s)
 void * memset(void * s,int c,size_t count)
 {
 	unsigned long *sl = (unsigned long *) s;
-	char *s8;
-
-#if !CONFIG_IS_ENABLED(TINY_MEMSET)
 	unsigned long cl = 0;
+	char *s8;
 	int i;
 
 	/* do it one word at a time (32 bits or 64 bits) while possible */
@@ -486,12 +427,36 @@ void * memset(void * s,int c,size_t count)
 			count -= sizeof(*sl);
 		}
 	}
-#endif	/* fill 8 bits at a time */
+	/* fill 8 bits at a time */
 	s8 = (char *)sl;
 	while (count--)
 		*s8++ = c;
 
 	return s;
+}
+#endif
+
+#ifndef __HAVE_ARCH_BCOPY
+/**
+ * bcopy - Copy one area of memory to another
+ * @src: Where to copy from
+ * @dest: Where to copy to
+ * @count: The size of the area.
+ *
+ * Note that this is the same as memcpy(), with the arguments reversed.
+ * memcpy() is the standard, bcopy() is a legacy BSD function.
+ *
+ * You should not use this function to access IO space, use memcpy_toio()
+ * or memcpy_fromio() instead.
+ */
+char * bcopy(const char * src, char * dest, int count)
+{
+	char *tmp = dest;
+
+	while (count--)
+		*tmp++ = *src++;
+
+	return dest;
 }
 #endif
 
@@ -543,9 +508,16 @@ void * memmove(void * dest,const void *src,size_t count)
 {
 	char *tmp, *s;
 
+	if (src == dest)
+		return dest;
+
 	if (dest <= src) {
-		memcpy(dest, src, count);
-	} else {
+		tmp = (char *) dest;
+		s = (char *) src;
+		while (count--)
+			*tmp++ = *s++;
+		}
+	else {
 		tmp = (char *) dest + count;
 		s = (char *) src + count;
 		while (count--)
@@ -644,62 +616,4 @@ void *memchr(const void *s, int c, size_t n)
 	return NULL;
 }
 
-#endif
-#ifndef __HAVE_ARCH_MEMCHR_INV
-static void *check_bytes8(const u8 *start, u8 value, unsigned int bytes)
-{
-	while (bytes) {
-		if (*start != value)
-			return (void *)start;
-		start++;
-		bytes--;
-	}
-	return NULL;
-}
-/**
- * memchr_inv - Find an unmatching character in an area of memory.
- * @start: The memory area
- * @c: Find a character other than c
- * @bytes: The size of the area.
- *
- * returns the address of the first character other than @c, or %NULL
- * if the whole buffer contains just @c.
- */
-void *memchr_inv(const void *start, int c, size_t bytes)
-{
-	u8 value = c;
-	u64 value64;
-	unsigned int words, prefix;
-
-	if (bytes <= 16)
-		return check_bytes8(start, value, bytes);
-
-	value64 = value;
-	value64 |= value64 << 8;
-	value64 |= value64 << 16;
-	value64 |= value64 << 32;
-
-	prefix = (unsigned long)start % 8;
-	if (prefix) {
-		u8 *r;
-
-		prefix = 8 - prefix;
-		r = check_bytes8(start, value, prefix);
-		if (r)
-			return r;
-		start += prefix;
-		bytes -= prefix;
-	}
-
-	words = bytes / 8;
-
-	while (words) {
-		if (*(u64 *)start != value64)
-			return check_bytes8(start, value, 8);
-		start += 8;
-		words--;
-	}
-
-	return check_bytes8(start, value, bytes % 8);
-}
 #endif

@@ -4,7 +4,23 @@
  * Written-by: Prafulla Wadaskar <prafulla@marvell.com>
  * Contributor: Mahavir Jain <mjain@marvell.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA 02110-1301 USA
  */
 
 #include <common.h>
@@ -45,7 +61,7 @@ struct armd1tmr_registers {
 #define	COUNT_RD_REQ		0x1
 
 DECLARE_GLOBAL_DATA_PTR;
-/* Using gd->arch.tbu from timestamp and gd->arch.tbl for lastdec */
+/* Using gd->tbu from timestamp and gd->tbl for lastdec */
 
 /* For preventing risk of instability in reading counter value,
  * first set read request to register cvwr and then read same
@@ -66,16 +82,16 @@ ulong get_timer_masked(void)
 {
 	ulong now = read_timer();
 
-	if (now >= gd->arch.tbl) {
+	if (now >= gd->tbl) {
 		/* normal mode */
-		gd->arch.tbu += now - gd->arch.tbl;
+		gd->tbu += now - gd->tbl;
 	} else {
 		/* we have an overflow ... */
-		gd->arch.tbu += now + TIMER_LOAD_VAL - gd->arch.tbl;
+		gd->tbu += now + TIMER_LOAD_VAL - gd->tbl;
 	}
-	gd->arch.tbl = now;
+	gd->tbl = now;
 
-	return gd->arch.tbu;
+	return gd->tbu;
 }
 
 ulong get_timer(ulong base)
@@ -119,9 +135,9 @@ int timer_init(void)
 
 	/* Enable timer 0 */
 	writel(0x1, &armd1timers->cer);
-	/* init the gd->arch.tbu and gd->arch.tbl value */
-	gd->arch.tbl = read_timer();
-	gd->arch.tbu = 0;
+	/* init the gd->tbu and gd->tbl value */
+	gd->tbl = read_timer();
+	gd->tbu = 0;
 
 	return 0;
 }

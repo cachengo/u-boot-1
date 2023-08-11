@@ -3,7 +3,24 @@
  *
  * Written by: Rafal Jaworowski <raj@semihalf.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
+ *
  */
 
 /*
@@ -64,5 +81,11 @@ struct device_info *	ub_dev_get(int);
 int ub_display_get_info(int type, struct display_info *di);
 int ub_display_draw_bitmap(ulong bitmap, int x, int y);
 void ub_display_clear(void);
+
+/* command */
+int ub_add_command(cmd_tbl_t*);
+int ub_run_command(char *);
+int ub_auto_complete(char *prompt, char *buf, int *np, int *colp);
+unsigned long ub_dram_size(void);
 
 #endif /* _API_GLUE_H_ */

@@ -21,8 +21,6 @@
 #endif
 #include <asm/mmu.h>
 
-DECLARE_GLOBAL_DATA_PTR;
-
 const qe_iop_conf_t qe_iop_conf_tab[] = {
 	/* UCC3 */
 	{1,  0, 1, 0, 1}, /* TxD0 */
@@ -70,23 +68,21 @@ const qe_iop_conf_t qe_iop_conf_tab[] = {
 
 int fixed_sdram(void);
 
-int dram_init(void)
+phys_size_t initdram(int board_type)
 {
 	volatile immap_t *im = (immap_t *) CONFIG_SYS_IMMR;
 	u32 msize = 0;
 
 	if ((im->sysconf.immrbar & IMMRBAR_BASE_ADDR) != (u32) im)
-		return -ENXIO;
+		return -1;
 
 	/* DDR SDRAM - Main SODIMM */
 	im->sysconf.ddrlaw[0].bar = CONFIG_SYS_DDR_BASE & LAWBAR_BAR;
 
 	msize = fixed_sdram();
 
-	/* set total bus SDRAM size(bytes)  -- DDR */
-	gd->ram_size = msize * 1024 * 1024;
-
-	return 0;
+	/* return total bus SDRAM size(bytes)  -- DDR */
+	return (msize * 1024 * 1024);
 }
 
 /*************************************************************************
@@ -176,14 +172,12 @@ void pci_init_board(void)
 }
 
 #if defined(CONFIG_OF_BOARD_SETUP)
-int ft_board_setup(void *blob, bd_t *bd)
+void ft_board_setup(void *blob, bd_t *bd)
 {
 	ft_cpu_setup(blob, bd);
 #ifdef CONFIG_PCI
 	ft_pci_setup(blob, bd);
 #endif
-
-	return 0;
 }
 #endif
 
@@ -201,11 +195,7 @@ int mac_read_from_eeprom(void)
 		printf("\nEEPROM @ 0x%02x read FAILED!!!\n",
 		       CONFIG_SYS_I2C_EEPROM_ADDR);
 	} else {
-		uint32_t crc_buf;
-
-		memcpy(&crc_buf, &buf[24], sizeof(uint32_t));
-
-		if (crc32(crc, buf, 24) == crc_buf) {
+		if (crc32(crc, buf, 24) == *(unsigned int *)&buf[24]) {
 			printf("Reading MAC from EEPROM\n");
 			for (i = 0; i < 4; i++) {
 				if (memcmp(&buf[i * 6], "\0\0\0\0\0\0", 6)) {
@@ -216,7 +206,7 @@ int mac_read_from_eeprom(void)
 						buf[i * 6 + 4], buf[i * 6 + 5]);
 					sprintf((char *)enetvar,
 						i ? "eth%daddr" : "ethaddr", i);
-					env_set((char *)enetvar, str);
+					setenv((char *)enetvar, str);
 				}
 			}
 		}

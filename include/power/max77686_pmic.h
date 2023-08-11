@@ -2,13 +2,27 @@
  *  Copyright (C) 2012 Samsung Electronics
  *  Rajeshwari Shinde <rajeshwari.s@samsung.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #ifndef __MAX77686_H_
 #define __MAX77686_H_
-
-#include <power/pmic.h>
 
 enum {
 	MAX77686_REG_PMIC_ID		= 0x0,
@@ -38,7 +52,7 @@ enum {
 	MAX77686_REG_PMIC_BUCK2DVS7,
 	MAX77686_REG_PMIC_BUCK2DVS8,
 	MAX77686_REG_PMIC_BUCK3CTRL,
-	MAX77686_REG_PMIC_BUCK3DVS1	= 0x1e,
+	MAX77686_REG_PMIC_BUCK3DVS1,
 	MAX77686_REG_PMIC_BUCK3DVS2,
 	MAX77686_REG_PMIC_BUCK3DVS3,
 	MAX77686_REG_PMIC_BUCK3DVS4,
@@ -122,17 +136,11 @@ enum {
 	MAX77686_REG_PMIC_BBAT		= 0x7e,
 	MAX77686_REG_PMIC_32KHZ,
 
-	MAX77686_NUM_OF_REGS,
+	PMIC_NUM_OF_REGS,
 };
 
 /* I2C device address for pmic max77686 */
-#define MAX77686_I2C_ADDR	(0x12 >> 1)
-#define MAX77686_LDO_NUM	26
-#define MAX77686_BUCK_NUM	9
-
-/* Drivers name */
-#define MAX77686_LDO_DRIVER	"max77686_ldo"
-#define MAX77686_BUCK_DRIVER	"max77686_buck"
+#define MAX77686_I2C_ADDR (0x12 >> 1)
 
 enum {
 	REG_DISABLE = 0,
@@ -147,82 +155,4 @@ enum {
 	EN_LDO = (0x3 << 6),
 };
 
-enum {
-	OPMODE_OFF = 0,
-	OPMODE_LPM,
-	OPMODE_STANDBY,
-	OPMODE_STANDBY_LPM,
-	OPMODE_ON,
-};
-
-#ifdef CONFIG_POWER
-int max77686_set_ldo_voltage(struct pmic *p, int ldo, ulong uV);
-int max77686_set_ldo_mode(struct pmic *p, int ldo, char opmode);
-int max77686_set_buck_voltage(struct pmic *p, int buck, ulong uV);
-int max77686_set_buck_mode(struct pmic *p, int buck, char opmode);
-#endif
-
-#define MAX77686_LDO_VOLT_MAX_HEX	0x3f
-#define MAX77686_LDO_VOLT_MASK		0x3f
-#define MAX77686_LDO_MODE_MASK		0xc0
-#define MAX77686_LDO_MODE_OFF		(0x00 << 0x06)
-#define MAX77686_LDO_MODE_LPM		(0x01 << 0x06)
-#define MAX77686_LDO_MODE_STANDBY	(0x01 << 0x06)
-#define MAX77686_LDO_MODE_STANDBY_LPM	(0x02 << 0x06)
-#define MAX77686_LDO_MODE_ON		(0x03 << 0x06)
-#define MAX77686_BUCK234_VOLT_MAX_HEX	0xff
-#define MAX77686_BUCK234_VOLT_MASK	0xff
-#define MAX77686_BUCK_VOLT_MAX_HEX	0x3f
-#define MAX77686_BUCK_VOLT_MASK		0x3f
-#define MAX77686_BUCK_MODE_MASK		0x03
-#define MAX77686_BUCK_MODE_SHIFT_1	0x00
-#define MAX77686_BUCK_MODE_SHIFT_2	0x04
-#define MAX77686_BUCK_MODE_OFF		0x00
-#define MAX77686_BUCK_MODE_STANDBY	0x01
-#define MAX77686_BUCK_MODE_LPM		0x02
-#define MAX77686_BUCK_MODE_ON		0x03
-
-/* For regulator hex<->volt conversion */
-#define MAX77686_LDO_UV_MIN		800000 /* Minimum LDO uV value */
-#define MAX77686_LDO_UV_LSTEP		25000 /* uV lower value step */
-#define MAX77686_LDO_UV_HSTEP		50000 /* uV higher value step */
-#define MAX77686_BUCK_UV_LMIN		600000 /* Lower minimun BUCK value */
-#define MAX77686_BUCK_UV_HMIN		750000 /* Higher minimun BUCK value */
-#define MAX77686_BUCK_UV_LSTEP		12500  /* uV lower value step */
-#define MAX77686_BUCK_UV_HSTEP		50000  /* uV higher value step */
-
-/* Buck1 1 volt value */
-#define MAX77686_BUCK1OUT_1V	0x5
-/* Buck1 1.05 volt value */
-#define MAX77686_BUCK1OUT_1_05V    0x6
-#define MAX77686_BUCK1CTRL_EN	(3 << 0)
-/* Buck2 1.3 volt value */
-#define MAX77686_BUCK2DVS1_1_3V	0x38
-#define MAX77686_BUCK2CTRL_ON	(1 << 4)
-/* Buck3 1.0125 volt value */
-#define MAX77686_BUCK3DVS1_1_0125V	0x21
-#define MAX77686_BUCK3CTRL_ON	(1 << 4)
-/* Buck4 1.2 volt value */
-#define MAX77686_BUCK4DVS1_1_2V	0x30
-#define MAX77686_BUCK4CTRL_ON	(1 << 4)
-/* LDO2 1.5 volt value */
-#define MAX77686_LD02CTRL1_1_5V	0x1c
-/* LDO3 1.8 volt value */
-#define MAX77686_LD03CTRL1_1_8V	0x14
-/* LDO5 1.8 volt value */
-#define MAX77686_LD05CTRL1_1_8V	0x14
-/* LDO10 1.8 volt value */
-#define MAX77686_LD10CTRL1_1_8V	0x14
-/*
- * MAX77686_REG_PMIC_32KHZ set to 32KH CP
- * output is activated
- */
-#define MAX77686_32KHCP_EN	(1 << 1)
-/*
- * MAX77686_REG_PMIC_BBAT set to
- * Back up batery charger on and
- * limit voltage setting to 3.5v
- */
-#define MAX77686_BBCHOSTEN	(1 << 0)
-#define MAX77686_BBCVS_3_5V	(3 << 3)
 #endif /* __MAX77686_PMIC_H_ */

@@ -1,26 +1,36 @@
 /*
  * USB HOST XHCI Controller stack
  *
+ * Copyright (C) 2013 Samsung Electronics Co.Ltd
+ *	Vivek Gautam <gautam.vivek@samsung.com>
+ *	Vikas Sajjan <vikas.sajjan@samsung.com>
+ *
  * Based on xHCI host controller driver in linux-kernel
  * by Sarah Sharp.
  *
- * Copyright (C) 2008 Intel Corp.
- * Author: Sarah Sharp
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
  *
- * Copyright (C) 2013 Samsung Electronics Co.Ltd
- * Authors: Vivek Gautam <gautam.vivek@samsung.com>
- *	    Vikas Sajjan <vikas.sajjan@samsung.com>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA 02110-1301 USA
  */
 
 #include <common.h>
-#include <dm.h>
 #include <asm/byteorder.h>
 #include <usb.h>
+#include <asm/io.h>
 #include <malloc.h>
 #include <asm/cache.h>
-#include <linux/errno.h>
+#include <asm-generic/errno.h>
 
 #include "xhci.h"
 
@@ -32,7 +42,7 @@
  * @param len	the length of the cache line to be flushed
  * @return none
  */
-void xhci_flush_cache(uintptr_t addr, u32 len)
+void xhci_flush_cache(uint32_t addr, u32 len)
 {
 	BUG_ON((void *)addr == NULL || len == 0);
 
@@ -47,7 +57,7 @@ void xhci_flush_cache(uintptr_t addr, u32 len)
  * @param len	the length of the cache line to be invalidated
  * @return none
  */
-void xhci_inval_cache(uintptr_t addr, u32 len)
+void xhci_inval_cache(uint32_t addr, u32 len)
 {
 	BUG_ON((void *)addr == NULL || len == 0);
 
@@ -93,25 +103,6 @@ static void xhci_ring_free(struct xhci_ring *ring)
 	xhci_segment_free(first_seg);
 
 	free(ring);
-}
-
-/**
- * Free the scratchpad buffer array and scratchpad buffers
- *
- * @ctrl	host controller data structure
- * @return	none
- */
-static void xhci_scratchpad_free(struct xhci_ctrl *ctrl)
-{
-	if (!ctrl->scratchpad)
-		return;
-
-	ctrl->dcbaa->dev_context_ptrs[0] = 0;
-
-	free((void *)(uintptr_t)ctrl->scratchpad->sp_array[0]);
-	free(ctrl->scratchpad->sp_array);
-	free(ctrl->scratchpad);
-	ctrl->scratchpad = NULL;
 }
 
 /**
@@ -174,7 +165,6 @@ void xhci_cleanup(struct xhci_ctrl *ctrl)
 {
 	xhci_ring_free(ctrl->event_ring);
 	xhci_ring_free(ctrl->cmd_ring);
-	xhci_scratchpad_free(ctrl);
 	xhci_free_virt_devices(ctrl);
 	free(ctrl->erst.entries);
 	free(ctrl->dcbaa);
@@ -196,7 +186,7 @@ static void *xhci_malloc(unsigned int size)
 	BUG_ON(!ptr);
 	memset(ptr, '\0', size);
 
-	xhci_flush_cache((uintptr_t)ptr, size);
+	xhci_flush_cache((uint32_t)ptr, size);
 
 	return ptr;
 }
@@ -340,70 +330,6 @@ struct xhci_ring *xhci_ring_alloc(unsigned int num_segs, bool link_trbs)
 }
 
 /**
- * Set up the scratchpad buffer array and scratchpad buffers
- *
- * @ctrl	host controller data structure
- * @return	-ENOMEM if buffer allocation fails, 0 on success
- */
-static int xhci_scratchpad_alloc(struct xhci_ctrl *ctrl)
-{
-	struct xhci_hccr *hccr = ctrl->hccr;
-	struct xhci_hcor *hcor = ctrl->hcor;
-	struct xhci_scratchpad *scratchpad;
-	int num_sp;
-	uint32_t page_size;
-	void *buf;
-	int i;
-
-	num_sp = HCS_MAX_SCRATCHPAD(xhci_readl(&hccr->cr_hcsparams2));
-	if (!num_sp)
-		return 0;
-
-	scratchpad = malloc(sizeof(*scratchpad));
-	if (!scratchpad)
-		goto fail_sp;
-	ctrl->scratchpad = scratchpad;
-
-	scratchpad->sp_array = xhci_malloc(num_sp * sizeof(u64));
-	if (!scratchpad->sp_array)
-		goto fail_sp2;
-	ctrl->dcbaa->dev_context_ptrs[0] =
-		cpu_to_le64((uintptr_t)scratchpad->sp_array);
-
-	page_size = xhci_readl(&hcor->or_pagesize) & 0xffff;
-	for (i = 0; i < 16; i++) {
-		if ((0x1 & page_size) != 0)
-			break;
-		page_size = page_size >> 1;
-	}
-	BUG_ON(i == 16);
-
-	page_size = 1 << (i + 12);
-	buf = memalign(page_size, num_sp * page_size);
-	if (!buf)
-		goto fail_sp3;
-	memset(buf, '\0', num_sp * page_size);
-	xhci_flush_cache((uintptr_t)buf, num_sp * page_size);
-
-	for (i = 0; i < num_sp; i++) {
-		uintptr_t ptr = (uintptr_t)buf + i * page_size;
-		scratchpad->sp_array[i] = cpu_to_le64(ptr);
-	}
-
-	return 0;
-
-fail_sp3:
-	free(scratchpad->sp_array);
-
-fail_sp2:
-	free(scratchpad);
-	ctrl->scratchpad = NULL;
-
-fail_sp:
-	return -ENOMEM;
-}
-
-/**
  * Allocates the Container context
  *
  * @param ctrl	Host controller data structure
@@ -437,23 +363,25 @@ static struct xhci_container_ctx
  * @param udev	pointer to USB deivce structure
  * @return 0 on success else -1 on failure
  */
-int xhci_alloc_virt_device(struct xhci_ctrl *ctrl, unsigned int slot_id)
+int xhci_alloc_virt_device(struct usb_device *udev)
 {
 	u64 byte_64 = 0;
+	unsigned int slot_id = udev->slot_id;
 	struct xhci_virt_device *virt_dev;
+	struct xhci_ctrl *ctrl = udev->controller;
 
 	/* Slot ID 0 is reserved */
 	if (ctrl->devs[slot_id]) {
 		printf("Virt dev for slot[%d] already allocated\n", slot_id);
-		return -EEXIST;
+		return -1;
 	}
 
 	ctrl->devs[slot_id] = (struct xhci_virt_device *)
 					malloc(sizeof(struct xhci_virt_device));
 
 	if (!ctrl->devs[slot_id]) {
-		puts("Failed to allocate virtual device\n");
-		return -ENOMEM;
+		printf("Failed to allocate virtual device\n");
+		return -1;
 	}
 
 	memset(ctrl->devs[slot_id], 0, sizeof(struct xhci_virt_device));
@@ -463,16 +391,16 @@ int xhci_alloc_virt_device(struct xhci_ctrl *ctrl, unsigned int slot_id)
 	virt_dev->out_ctx = xhci_alloc_container_ctx(ctrl,
 					XHCI_CTX_TYPE_DEVICE);
 	if (!virt_dev->out_ctx) {
-		puts("Failed to allocate out context for virt dev\n");
-		return -ENOMEM;
+		printf("Failed to allocate out context for virt dev\n");
+		return -1;
 	}
 
 	/* Allocate the (input) device context for address device command */
 	virt_dev->in_ctx = xhci_alloc_container_ctx(ctrl,
 					XHCI_CTX_TYPE_INPUT);
 	if (!virt_dev->in_ctx) {
-		puts("Failed to allocate in context for virt dev\n");
-		return -ENOMEM;
+		printf("Failed to allocate in context for virt dev\n");
+		return -1;
 	}
 
 	/* Allocate endpoint 0 ring */
@@ -483,8 +411,8 @@ int xhci_alloc_virt_device(struct xhci_ctrl *ctrl, unsigned int slot_id)
 	/* Point to output device context in dcbaa. */
 	ctrl->dcbaa->dev_context_ptrs[slot_id] = byte_64;
 
-	xhci_flush_cache((uintptr_t)&ctrl->dcbaa->dev_context_ptrs[slot_id],
-			 sizeof(__le64));
+	xhci_flush_cache((uint32_t)&ctrl->dcbaa->dev_context_ptrs[slot_id],
+							sizeof(__le64));
 	return 0;
 }
 
@@ -511,8 +439,8 @@ int xhci_mem_init(struct xhci_ctrl *ctrl, struct xhci_hccr *hccr,
 	ctrl->dcbaa = (struct xhci_device_context_array *)
 			xhci_malloc(sizeof(struct xhci_device_context_array));
 	if (ctrl->dcbaa == NULL) {
-		puts("unable to allocate DCBA\n");
-		return -ENOMEM;
+		printf("unable to allocate DCBA\n");
+		return -1;
 	}
 
 	val_64 = (uintptr_t)ctrl->dcbaa;
@@ -561,8 +489,8 @@ int xhci_mem_init(struct xhci_ctrl *ctrl, struct xhci_hccr *hccr,
 		entry->rsvd = 0;
 		seg = seg->next;
 	}
-	xhci_flush_cache((uintptr_t)ctrl->erst.entries,
-			 ERST_NUM_SEGS * sizeof(struct xhci_erst_entry));
+	xhci_flush_cache((uint32_t)ctrl->erst.entries,
+			ERST_NUM_SEGS * sizeof(struct xhci_erst_entry));
 
 	deq = (unsigned long)ctrl->event_ring->dequeue;
 
@@ -579,12 +507,9 @@ int xhci_mem_init(struct xhci_ctrl *ctrl, struct xhci_hccr *hccr,
 	/* this is the event ring segment table pointer */
 	val_64 = xhci_readq(&ctrl->ir_set->erst_base);
 	val_64 &= ERST_PTR_MASK;
-	val_64 |= ((uintptr_t)(ctrl->erst.entries) & ~ERST_PTR_MASK);
+	val_64 |= ((u32)(ctrl->erst.entries) & ~ERST_PTR_MASK);
 
 	xhci_writeq(&ctrl->ir_set->erst_base, val_64);
-
-	/* set up the scratchpad buffer array and scratchpad buffers */
-	xhci_scratchpad_alloc(ctrl);
 
 	/* initializing the virtual devices to NULL */
 	for (i = 0; i < MAX_HC_SLOTS; ++i)
@@ -713,23 +638,17 @@ void xhci_slot_copy(struct xhci_ctrl *ctrl, struct xhci_container_ctx *in_ctx,
  * @param udev pointer to the Device Data Structure
  * @return returns negative value on failure else 0 on success
  */
-void xhci_setup_addressable_virt_dev(struct xhci_ctrl *ctrl,
-				     struct usb_device *udev, int hop_portnr)
+void xhci_setup_addressable_virt_dev(struct usb_device *udev)
 {
+	struct usb_device *hop = udev;
 	struct xhci_virt_device *virt_dev;
 	struct xhci_ep_ctx *ep0_ctx;
 	struct xhci_slot_ctx *slot_ctx;
 	u32 port_num = 0;
 	u64 trb_64 = 0;
-	int slot_id = udev->slot_id;
-	int speed = udev->speed;
-	int route = 0;
-#ifdef CONFIG_DM_USB
-	struct usb_device *dev = udev;
-	struct usb_hub_device *hub;
-#endif
+	struct xhci_ctrl *ctrl = udev->controller;
 
-	virt_dev = ctrl->devs[slot_id];
+	virt_dev = ctrl->devs[udev->slot_id];
 
 	BUG_ON(!virt_dev);
 
@@ -738,34 +657,9 @@ void xhci_setup_addressable_virt_dev(struct xhci_ctrl *ctrl,
 	slot_ctx = xhci_get_slot_ctx(ctrl, virt_dev->in_ctx);
 
 	/* Only the control endpoint is valid - one endpoint context */
-	slot_ctx->dev_info |= cpu_to_le32(LAST_CTX(1));
+	slot_ctx->dev_info |= cpu_to_le32(LAST_CTX(1) | 0);
 
-#ifdef CONFIG_DM_USB
-	/* Calculate the route string for this device */
-	port_num = dev->portnr;
-	while (!usb_hub_is_root_hub(dev->dev)) {
-		hub = dev_get_uclass_priv(dev->dev);
-		/*
-		 * Each hub in the topology is expected to have no more than
-		 * 15 ports in order for the route string of a device to be
-		 * unique. SuperSpeed hubs are restricted to only having 15
-		 * ports, but FS/LS/HS hubs are not. The xHCI specification
-		 * says that if the port number the device is greater than 15,
-		 * that portion of the route string shall be set to 15.
-		 */
-		if (port_num > 15)
-			port_num = 15;
-		route |= port_num << (hub->hub_depth * 4);
-		dev = dev_get_parent_priv(dev->dev);
-		port_num = dev->portnr;
-		dev = dev_get_parent_priv(dev->dev->parent);
-	}
-
-	debug("route string %x\n", route);
-#endif
-	slot_ctx->dev_info |= route;
-
-	switch (speed) {
+	switch (udev->speed) {
 	case USB_SPEED_SUPER:
 		slot_ctx->dev_info |= cpu_to_le32(SLOT_SPEED_SS);
 		break;
@@ -783,31 +677,11 @@ void xhci_setup_addressable_virt_dev(struct xhci_ctrl *ctrl,
 		BUG();
 	}
 
-#ifdef CONFIG_DM_USB
-	/* Set up TT fields to support FS/LS devices */
-	if (speed == USB_SPEED_LOW || speed == USB_SPEED_FULL) {
-		struct udevice *parent = udev->dev;
-
-		dev = udev;
-		do {
-			port_num = dev->portnr;
-			dev = dev_get_parent_priv(parent);
-			if (usb_hub_is_root_hub(dev->dev))
-				break;
-			parent = dev->dev->parent;
-		} while (dev->speed != USB_SPEED_HIGH);
-
-		if (!usb_hub_is_root_hub(dev->dev)) {
-			hub = dev_get_uclass_priv(dev->dev);
-			if (hub->tt.multi)
-				slot_ctx->dev_info |= cpu_to_le32(DEV_MTT);
-			slot_ctx->tt_info |= cpu_to_le32(TT_PORT(port_num));
-			slot_ctx->tt_info |= cpu_to_le32(TT_SLOT(dev->slot_id));
-		}
-	}
-#endif
-
-	port_num = hop_portnr;
+	/* Extract the root hub port number */
+	if (hop->parent)
+		while (hop->parent->parent)
+			hop = hop->parent;
+	port_num = hop->portnr;
 	debug("port_num = %d\n", port_num);
 
 	slot_ctx->dev_info2 |=
@@ -817,9 +691,9 @@ void xhci_setup_addressable_virt_dev(struct xhci_ctrl *ctrl,
 	/* Step 4 - ring already allocated */
 	/* Step 5 */
 	ep0_ctx->ep_info2 = cpu_to_le32(CTRL_EP << EP_TYPE_SHIFT);
-	debug("SPEED = %d\n", speed);
+	debug("SPEED = %d\n", udev->speed);
 
-	switch (speed) {
+	switch (udev->speed) {
 	case USB_SPEED_SUPER:
 		ep0_ctx->ep_info2 |= cpu_to_le32(((512 & MAX_PACKET_MASK) <<
 					MAX_PACKET_SHIFT));
@@ -850,14 +724,8 @@ void xhci_setup_addressable_virt_dev(struct xhci_ctrl *ctrl,
 	trb_64 = (uintptr_t)virt_dev->eps[0].ring->first_seg->trbs;
 	ep0_ctx->deq = cpu_to_le64(trb_64 | virt_dev->eps[0].ring->cycle_state);
 
-	/*
-	 * xHCI spec 6.2.3:
-	 * software shall set 'Average TRB Length' to 8 for control endpoints.
-	 */
-	ep0_ctx->tx_info = cpu_to_le32(EP_AVG_TRB_LENGTH(8));
-
 	/* Steps 7 and 8 were done in xhci_alloc_virt_device() */
 
-	xhci_flush_cache((uintptr_t)ep0_ctx, sizeof(struct xhci_ep_ctx));
-	xhci_flush_cache((uintptr_t)slot_ctx, sizeof(struct xhci_slot_ctx));
+	xhci_flush_cache((uint32_t)ep0_ctx, sizeof(struct xhci_ep_ctx));
+	xhci_flush_cache((uint32_t)slot_ctx, sizeof(struct xhci_slot_ctx));
 }

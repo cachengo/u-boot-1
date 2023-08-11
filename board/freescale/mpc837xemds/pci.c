@@ -1,7 +1,13 @@
 /*
  * Copyright (C) 2006-2009 Freescale Semiconductor, Inc.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
  */
 
 #include <asm/mmu.h>
@@ -67,7 +73,7 @@ static struct pci_region pcie_regions_1[] = {
 
 static int is_pex_x2(void)
 {
-	const char *pex_x2 = env_get("pex_x2");
+	const char *pex_x2 = getenv("pex_x2");
 
 	if (pex_x2 && !strcmp(pex_x2, "yes"))
 		return 1;

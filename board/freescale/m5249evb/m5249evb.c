@@ -2,15 +2,29 @@
  * (C) Copyright 2004
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
 #include <command.h>
 #include <malloc.h>
 #include <asm/immap.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 int checkboard (void) {
 	ulong val;
@@ -31,8 +45,7 @@ int checkboard (void) {
 };
 
 
-int dram_init(void)
-{
+phys_size_t initdram (int board_type) {
 	unsigned long	junk = 0xa5a59696;
 
 	/*
@@ -84,9 +97,7 @@ int dram_init(void)
 	mbar_writeLong(MCFSIM_DACR0, 0x0000b364);  /* Enable DACR0[IMRS] (bit 6); RE remains enabled */
 	*((volatile unsigned long *) 0x800) = junk; /* Access RAM to initialize the mode register */
 
-	gd->ram_size = CONFIG_SYS_SDRAM_SIZE * 1024 * 1024;
-
-	return 0;
+	return CONFIG_SYS_SDRAM_SIZE * 1024 * 1024;
 };
 
 

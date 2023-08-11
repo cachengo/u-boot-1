@@ -1,7 +1,23 @@
 /*
  * Copyright 2009-2011 Freescale Semiconductor, Inc.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
@@ -13,7 +29,7 @@
 #include <asm/io.h>
 #include <asm/processor.h>
 #include <asm/fsl_law.h>
-#include <linux/errno.h>
+#include <asm/errno.h>
 #include "fsl_corenet_serdes.h"
 
 /*
@@ -76,7 +92,7 @@ static const struct {
 	{ 17, 163, FSL_SRDS_BANK_2 },
 	{ 18, 164, FSL_SRDS_BANK_2 },
 	{ 19, 165, FSL_SRDS_BANK_2 },
-#ifdef CONFIG_ARCH_P4080
+#ifdef CONFIG_PPC_P4080
 	{ 20, 170, FSL_SRDS_BANK_3 },
 	{ 21, 171, FSL_SRDS_BANK_3 },
 	{ 22, 172, FSL_SRDS_BANK_3 },
@@ -86,10 +102,6 @@ static const struct {
 	{ 21, 167, FSL_SRDS_BANK_3 },
 	{ 22, 168, FSL_SRDS_BANK_3 },
 	{ 23, 169, FSL_SRDS_BANK_3 },
-#endif
-#if SRDS_MAX_BANK > 3
-	{ 24, 175, FSL_SRDS_BANK_4 },
-	{ 25, 176, FSL_SRDS_BANK_4 },
 #endif
 };
 
@@ -135,9 +147,6 @@ int is_serdes_configured(enum srds_prtcl device)
 	/* Is serdes enabled at all? */
 	if (!(in_be32(&gur->rcwsr[5]) & FSL_CORENET_RCWSR5_SRDS_EN))
 		return 0;
-
-	if (!(serdes_prtcl_map & (1 << NONE)))
-		fsl_serdes_init();
 
 	return (1 << device) & serdes_prtcl_map;
 }
@@ -491,7 +500,7 @@ void fsl_serdes_init(void)
 	ccsr_gur_t *gur = (void *)(CONFIG_SYS_MPC85xx_GUTS_ADDR);
 	int cfg;
 	serdes_corenet_t *srds_regs;
-#ifdef CONFIG_ARCH_P5040
+#ifdef CONFIG_PPC_P5040
 	serdes_corenet_t *srds2_regs;
 #endif
 	int lane, bank, idx;
@@ -504,7 +513,7 @@ void fsl_serdes_init(void)
 	size_t arglen;
 #endif
 #ifdef CONFIG_SYS_P4080_ERRATUM_SERDES_A001
-	int need_serdes_a001;	/* true == need work-around for SERDES A001 */
+	int need_serdes_a001;	/* TRUE == need work-around for SERDES A001 */
 #endif
 #ifdef CONFIG_SYS_P4080_ERRATUM_SERDES8
 	char buffer[HWCONFIG_BUFFER_SIZE];
@@ -514,11 +523,9 @@ void fsl_serdes_init(void)
 	 * Extract hwconfig from environment since we have not properly setup
 	 * the environment but need it for ddr config params
 	 */
-	if (env_get_f("hwconfig", buffer, sizeof(buffer)) > 0)
+	if (getenv_f("hwconfig", buffer, sizeof(buffer)) > 0)
 		buf = buffer;
 #endif
-	if (serdes_prtcl_map & (1 << NONE))
-		return;
 
 	/* Is serdes enabled at all? */
 	if (!(in_be32(&gur->rcwsr[5]) & FSL_CORENET_RCWSR5_SRDS_EN))
@@ -577,7 +584,7 @@ void fsl_serdes_init(void)
 		}
 	}
 
-#ifdef CONFIG_ARCH_P5040
+#ifdef CONFIG_PPC_P5040
 	/*
 	 * Lanes on bank 4 on P5040 are commented-out, but for some SERDES
 	 * protocols, these lanes are routed to SATA.  We use serdes_prtcl_map
@@ -606,9 +613,6 @@ void fsl_serdes_init(void)
 #endif
 
 	soc_serdes_init();
-
-	/* Set the first bit to indicate serdes has been initialized */
-	serdes_prtcl_map |= (1 << NONE);
 
 #ifdef CONFIG_SYS_P4080_ERRATUM_SERDES8
 	/*
@@ -866,20 +870,3 @@ void fsl_serdes_init(void)
 	}
 #endif
 }
-
-const char *serdes_clock_to_string(u32 clock)
-{
-	switch (clock) {
-	case SRDS_PLLCR0_RFCK_SEL_100:
-		return "100";
-	case SRDS_PLLCR0_RFCK_SEL_125:
-		return "125";
-	case SRDS_PLLCR0_RFCK_SEL_156_25:
-		return "156.25";
-	case SRDS_PLLCR0_RFCK_SEL_161_13:
-		return "161.1328123";
-	default:
-		return "150";
-	}
-}
-

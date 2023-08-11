@@ -3,16 +3,27 @@
  * Shawn Lin, Andes Technology Corporation <nobuhiro@andestech.com>
  * Macpaul Lin, Andes Technology Corporation <macpaul@andestech.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <common.h>
-#if defined(CONFIG_FTMAC100) && !defined(CONFIG_DM_ETH)
 #include <netdev.h>
-#endif
-#include <linux/io.h>
 #include <asm/io.h>
-#include <asm/mach-types.h>
 
 #include <faraday/ftsdc010.h>
 #include <faraday/ftsmc020.h>
@@ -29,17 +40,17 @@ int board_init(void)
 	 * refer to BOOT_PARAMETER_PA_BASE within
 	 * "linux/arch/nds32/include/asm/misc_spec.h"
 	 */
-	printf("Board: %s\n" , CONFIG_SYS_BOARD);
 	gd->bd->bi_arch_number = MACH_TYPE_ADPAG101P;
 	gd->bd->bi_boot_params = PHYS_SDRAM_0 + 0x400;
 
+	ftsmc020_init();	/* initialize Flash */
 	return 0;
 }
 
 int dram_init(void)
 {
 	unsigned long sdram_base = PHYS_SDRAM_0;
-	unsigned long expected_size = PHYS_SDRAM_0_SIZE + PHYS_SDRAM_1_SIZE;
+	unsigned long expected_size = PHYS_SDRAM_0_SIZE;
 	unsigned long actual_size;
 
 	actual_size = get_ram_size((void *)sdram_base, expected_size);
@@ -54,22 +65,10 @@ int dram_init(void)
 	return 0;
 }
 
-int dram_init_banksize(void)
-{
-	gd->bd->bi_dram[0].start = PHYS_SDRAM_0;
-	gd->bd->bi_dram[0].size =  PHYS_SDRAM_0_SIZE;
-	gd->bd->bi_dram[1].start = PHYS_SDRAM_1;
-	gd->bd->bi_dram[1].size =  PHYS_SDRAM_1_SIZE;
-
-	return 0;
-}
-
-#if defined(CONFIG_FTMAC100) && !defined(CONFIG_DM_ETH)
 int board_eth_init(bd_t *bd)
 {
 	return ftmac100_initialize(bd);
 }
-#endif
 
 ulong board_flash_get_legacy(ulong base, int banknum, flash_info_t *info)
 {
@@ -85,8 +84,6 @@ ulong board_flash_get_legacy(ulong base, int banknum, flash_info_t *info)
 
 int board_mmc_init(bd_t *bis)
 {
-#ifdef CONFIG_FTSDC010
 	ftsdc010_mmc_init(0);
-#endif
 	return 0;
 }

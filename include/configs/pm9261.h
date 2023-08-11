@@ -6,7 +6,23 @@
  *
  * Configuation settings for the RONETIX PM9261 board.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #ifndef __CONFIG_H
@@ -20,17 +36,22 @@
 #include <asm/hardware.h>
 /* ARM asynchronous clock */
 
+#define CONFIG_DISPLAY_BOARDINFO
+
 #define MASTER_PLL_DIV		15
 #define MASTER_PLL_MUL		162
 #define MAIN_PLL_DIV		2
 #define CONFIG_SYS_AT91_SLOW_CLOCK	32768		/* slow clock xtal */
 #define CONFIG_SYS_AT91_MAIN_CLOCK	18432000
 
+#define CONFIG_SYS_HZ		1000
+
 #define CONFIG_SYS_AT91_CPU_NAME	"AT91SAM9261"
 #define CONFIG_PM9261		1	/* on a Ronetix PM9261 Board	*/
 #define CONFIG_ARCH_CPU_INIT
 #define CONFIG_SYS_TEXT_BASE	0
 
+#define MACH_TYPE_PM9261	1187
 #define CONFIG_MACH_TYPE	MACH_TYPE_PM9261
 
 /* clocks */
@@ -47,13 +68,15 @@
 #define	CONFIG_SYS_MCKR1_VAL		\
 		(AT91_PMC_MCKR_CSS_SLOW |	\
 		 AT91_PMC_MCKR_PRES_1 |	\
-		 AT91_PMC_MCKR_MDIV_2)
+		 AT91_PMC_MCKR_MDIV_2 |	\
+		 AT91_PMC_MCKR_PLLADIV_1)
 
 /* PCK/2 = MCK Master Clock from PLLA */
 #define	CONFIG_SYS_MCKR2_VAL		\
 		(AT91_PMC_MCKR_CSS_PLLA |	\
 		 AT91_PMC_MCKR_PRES_1 |	\
-		 AT91_PMC_MCKR_MDIV_2)
+		 AT91_PMC_MCKR_MDIV_2 |	\
+		 AT91_PMC_MCKR_PLLADIV_1)
 
 /* define PDC[31:16] as DATA[31:16] */
 #define CONFIG_SYS_PIOC_PDR_VAL1	0xFFFF0000
@@ -137,19 +160,35 @@
 #define CONFIG_INITRD_TAG	1
 
 #undef CONFIG_SKIP_LOWLEVEL_INIT
+#define CONFIG_BOARD_EARLY_INIT_F
 
 /*
  * Hardware drivers
  */
+#define CONFIG_AT91_GPIO	1
+#define CONFIG_ATMEL_USART	1
+#define CONFIG_USART_BASE		ATMEL_BASE_DBGU
+#define	CONFIG_USART_ID			ATMEL_ID_SYS
 
 /* LCD */
+#define CONFIG_LCD			1
 #define LCD_BPP				LCD_COLOR8
 #define CONFIG_LCD_LOGO			1
 #undef LCD_TEST_PATTERN
 #define CONFIG_LCD_INFO			1
 #define CONFIG_LCD_INFO_BELOW_LOGO	1
+#define CONFIG_SYS_WHITE_ON_BLACK	1
 #define CONFIG_ATMEL_LCD		1
 #define CONFIG_ATMEL_LCD_BGR555		1
+#define CONFIG_SYS_CONSOLE_IS_IN_ENV	1
+
+/* LED */
+#define CONFIG_AT91_LED
+#define	CONFIG_RED_LED		AT91_PIO_PORTC, 12
+#define	CONFIG_GREEN_LED	AT91_PIO_PORTC, 13
+#define	CONFIG_YELLOW_LED	AT91_PIO_PORTC, 15
+
+#define CONFIG_BOOTDELAY	3
 
 /*
  * BOOTP options
@@ -159,10 +198,37 @@
 #define CONFIG_BOOTP_GATEWAY		1
 #define CONFIG_BOOTP_HOSTNAME		1
 
+/*
+ * Command line configuration.
+ */
+#include <config_cmd_default.h>
+#undef CONFIG_CMD_BDI
+#undef CONFIG_CMD_IMI
+#undef CONFIG_CMD_FPGA
+#undef CONFIG_CMD_LOADS
+#undef CONFIG_CMD_IMLS
+
+#define CONFIG_CMD_CACHE
+#define CONFIG_CMD_PING		1
+#define CONFIG_CMD_DHCP		1
+#define CONFIG_CMD_NAND		1
+#define CONFIG_CMD_USB		1
+
 /* SDRAM */
 #define CONFIG_NR_DRAM_BANKS			1
 #define PHYS_SDRAM				0x20000000
 #define PHYS_SDRAM_SIZE				0x04000000	/* 64 megs */
+
+/* DataFlash */
+#define CONFIG_ATMEL_DATAFLASH_SPI
+#define CONFIG_HAS_DATAFLASH
+#define CONFIG_SYS_SPI_WRITE_TOUT		(5 * CONFIG_SYS_HZ)
+#define CONFIG_SYS_MAX_DATAFLASH_BANKS		1
+#define CONFIG_SYS_DATAFLASH_LOGIC_ADDR_CS0	0xC0000000	/* CS0 */
+#define CONFIG_SYS_DATAFLASH_LOGIC_ADDR_CS3	0xD0000000	/* CS3 */
+#define AT91_SPI_CLK				15000000
+#define DATAFLASH_TCSS				(0x1a << 16)
+#define DATAFLASH_TCHS				(0x1 << 24)
 
 /* NAND flash */
 #define CONFIG_NAND_ATMEL
@@ -173,8 +239,8 @@
 #define CONFIG_SYS_NAND_MASK_ALE		(1 << 22)
 /* our CLE is AD21 */
 #define CONFIG_SYS_NAND_MASK_CLE		(1 << 21)
-#define CONFIG_SYS_NAND_ENABLE_PIN		GPIO_PIN_PC(14)
-#define CONFIG_SYS_NAND_READY_PIN		GPIO_PIN_PA(16)
+#define CONFIG_SYS_NAND_ENABLE_PIN		AT91_PIO_PORTC, 14
+#define CONFIG_SYS_NAND_READY_PIN		AT91_PIO_PORTA, 16
 
 /* NOR flash */
 #define CONFIG_SYS_FLASH_CFI			1
@@ -195,12 +261,13 @@
 
 /* USB */
 #define CONFIG_USB_ATMEL
-#define CONFIG_USB_ATMEL_CLK_SEL_PLLB
 #define CONFIG_USB_OHCI_NEW			1
+#define CONFIG_DOS_PARTITION			1
 #define CONFIG_SYS_USB_OHCI_CPU_INIT		1
 #define CONFIG_SYS_USB_OHCI_REGS_BASE		0x00500000
 #define CONFIG_SYS_USB_OHCI_SLOT_NAME		"at91sam9261"
 #define CONFIG_SYS_USB_OHCI_MAX_ROOT_PORTS	2
+#define CONFIG_USB_STORAGE			1
 
 #define CONFIG_SYS_LOAD_ADDR			0x22000000
 
@@ -214,24 +281,37 @@
 #ifdef CONFIG_SYS_USE_DATAFLASH_CS0
 
 /* bootstrap + u-boot + env + linux in dataflash on CS0 */
+#define CONFIG_ENV_IS_IN_DATAFLASH	1
+#define CONFIG_SYS_MONITOR_BASE		\
+		(CONFIG_SYS_DATAFLASH_LOGIC_ADDR_CS0 + 0x8400)
 #define CONFIG_ENV_OFFSET	0x4200
+#define CONFIG_ENV_ADDR		\
+		(CONFIG_SYS_DATAFLASH_LOGIC_ADDR_CS0 + CONFIG_ENV_OFFSET)
 #define CONFIG_ENV_SIZE		0x4200
-#define CONFIG_ENV_SECT_SIZE	0x210
-#define CONFIG_ENV_SPI_MAX_HZ	15000000
-#define CONFIG_BOOTCOMMAND	"sf probe 0; " \
-				"sf read 0x22000000 0x84000 0x210000; " \
-				"bootm 0x22000000"
+#define CONFIG_BOOTCOMMAND	"cp.b 0xC0042000 0x22000000 0x210000; bootm"
+#define CONFIG_BOOTARGS		"console=ttyS0,115200 "			\
+				"root=/dev/mtdblock0 "			\
+				"mtdparts=atmel_nand:-(root) "		\
+				"rw rootfstype=jffs2"
 
 #elif defined(CONFIG_SYS_USE_NANDFLASH) /* CONFIG_SYS_USE_NANDFLASH */
 
 /* bootstrap + u-boot + env + linux in nandflash */
+#define CONFIG_ENV_IS_IN_NAND		1
 #define CONFIG_ENV_OFFSET		0x60000
 #define CONFIG_ENV_OFFSET_REDUND	0x80000
 #define CONFIG_ENV_SIZE			0x20000		/* 1 sector = 128 kB */
 #define CONFIG_BOOTCOMMAND	"nand read 0x22000000 0xA0000 0x200000; bootm"
+#define CONFIG_BOOTARGS		"console=ttyS0,115200 "			\
+				"root=/dev/mtdblock5 "			\
+				"mtdparts=atmel_nand:128k(bootstrap)ro,"	\
+				"256k(uboot)ro,128k(env1)ro,"		\
+				"128k(env2)ro,2M(linux),-(root) "	\
+				"rw rootfstype=jffs2"
 
 #elif defined (CONFIG_SYS_USE_FLASH)
 
+#define CONFIG_ENV_IS_IN_FLASH	1
 #define CONFIG_ENV_OFFSET	0x40000
 #define CONFIG_ENV_SECT_SIZE	0x10000
 #define	CONFIG_ENV_SIZE		0x10000
@@ -256,6 +336,7 @@
 	"nand:-(nand)"
 
 #define CONFIG_CON_ROT "fbcon=rotate:3 "
+#define CONFIG_BOOTARGS "root=/dev/mtdblock4 rootfstype=jffs2 " CONFIG_CON_ROT
 
 #define CONFIG_EXTRA_ENV_SETTINGS				\
 	"mtdids=" MTDIDS_DEFAULT "\0"				\
@@ -278,6 +359,13 @@
 #error "Undefined memory device"
 #endif
 
+#define CONFIG_BAUDRATE			115200
+
+#define CONFIG_SYS_PROMPT		"pm9261> "
+#define CONFIG_SYS_CBSIZE		256
+#define CONFIG_SYS_MAXARGS		16
+#define CONFIG_SYS_PBSIZE		\
+		(CONFIG_SYS_CBSIZE + sizeof(CONFIG_SYS_PROMPT) + 16)
 #define CONFIG_SYS_LONGHELP		1
 #define CONFIG_CMDLINE_EDITING	1
 
@@ -288,7 +376,7 @@
 		ROUND(3 * CONFIG_ENV_SIZE + 128 * 1024, 0x1000)
 
 #define CONFIG_SYS_SDRAM_BASE	PHYS_SDRAM
-#define CONFIG_SYS_INIT_SP_ADDR	(CONFIG_SYS_SDRAM_BASE + 16 * 1024 - \
+#define CONFIG_SYS_INIT_SP_ADDR	(CONFIG_SYS_SDRAM_BASE + 0x1000 - \
 				GENERATED_GBL_DATA_SIZE)
 
 #endif

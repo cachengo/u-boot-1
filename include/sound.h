@@ -2,7 +2,23 @@
  * Copyright (C) 2012 Samsung Electronics
  * R. Chandrasekar < rcsekar@samsung.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #ifndef __SOUND_H__
@@ -12,7 +28,6 @@
 enum en_sound_codec {
 	CODEC_WM_8994,
 	CODEC_WM_8995,
-	CODEC_MAX_98095,
 	CODEC_MAX
 };
 
@@ -30,15 +45,6 @@ struct sound_codec_info {
 };
 
 /*
- * Generates square wave sound data for 1 second
- *
- * @param data          data buffer pointer
- * @param size          size of the buffer
- * @param freq          frequency of the wave
- */
-void sound_create_square_wave(unsigned short *data, int size, uint32_t freq);
-
-/*
  * Initialises audio sub system
  * @param blob	Pointer of device tree node or NULL if none.
  * @return	int value 0 for success, -1 for error
@@ -52,15 +58,5 @@ int sound_init(const void *blob);
  * @return	int 0 for success, -1 for error
  */
 int sound_play(uint32_t msec, uint32_t frequency);
-
-struct snd_soc_dai_ops {
-	int (*hw_params)(struct udevice *dev, unsigned int samplerate,
-			 unsigned int fmt, unsigned int channels);
-	int (*startup)(struct udevice *dev);
-	int (*shutdown)(struct udevice *dev);
-	int (*transfer)(struct udevice *dev, unsigned int *data,
-			unsigned long data_size);
-	int (*set_sysclk)(struct udevice *dev, unsigned int freq);
-};
 
 #endif  /* __SOUND__H__ */

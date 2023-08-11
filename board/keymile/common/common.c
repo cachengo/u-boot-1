@@ -5,14 +5,30 @@
  * (C) Copyright 2011
  * Holger Brunck, Keymile GmbH Hannover, holger.brunck@keymile.com
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
 #include <ioports.h>
 #include <command.h>
 #include <malloc.h>
-#include <cli_hush.h>
+#include <hush.h>
 #include <net.h>
 #include <netdev.h>
 #include <asm/io.h>
@@ -22,7 +38,13 @@
 #include "post.h"
 #endif
 #include "common.h"
+#if defined(CONFIG_HARD_I2C) || defined(CONFIG_SOFT_I2C)
 #include <i2c.h>
+#endif
+
+#if !defined(CONFIG_MPC83xx)
+static void i2c_write_start_seq(void);
+#endif
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -51,29 +73,30 @@ int set_km_env(void)
 	pnvramaddr = gd->ram_size - CONFIG_KM_RESERVED_PRAM - CONFIG_KM_PHRAM
 			- CONFIG_KM_PNVRAM;
 	sprintf((char *)buf, "0x%x", pnvramaddr);
-	env_set("pnvramaddr", (char *)buf);
+	setenv("pnvramaddr", (char *)buf);
 
-	/* try to read rootfssize (ram image) from environment */
-	p = env_get("rootfssize");
+	/* try to read rootfssize (ram image) from envrionment */
+	p = getenv("rootfssize");
 	if (p != NULL)
 		strict_strtoul(p, 16, &rootfssize);
 	pram = (rootfssize + CONFIG_KM_RESERVED_PRAM + CONFIG_KM_PHRAM +
 		CONFIG_KM_PNVRAM) / 0x400;
 	sprintf((char *)buf, "0x%x", pram);
-	env_set("pram", (char *)buf);
+	setenv("pram", (char *)buf);
 
 	varaddr = gd->ram_size - CONFIG_KM_RESERVED_PRAM - CONFIG_KM_PHRAM;
 	sprintf((char *)buf, "0x%x", varaddr);
-	env_set("varaddr", (char *)buf);
+	setenv("varaddr", (char *)buf);
 
 	kernelmem = gd->ram_size - 0x400 * pram;
 	sprintf((char *)buf, "0x%x", kernelmem);
-	env_set("kernelmem", (char *)buf);
+	setenv("kernelmem", (char *)buf);
 
 	return 0;
 }
 
 #if defined(CONFIG_SYS_I2C_INIT_BOARD)
+#if !defined(CONFIG_MPC83xx)
 static void i2c_write_start_seq(void)
 {
 	set_sda(1);
@@ -96,6 +119,21 @@ static void i2c_write_start_seq(void)
  */
 int i2c_make_abort(void)
 {
+
+#if defined(CONFIG_HARD_I2C) && !defined(MACH_TYPE_KM_KIRKWOOD)
+	immap_t *immap = (immap_t *)CONFIG_SYS_IMMR;
+	i2c8260_t *i2c	= (i2c8260_t *)&immap->im_i2c;
+
+	/*
+	 * disable I2C controller first, otherwhise it thinks we want to
+	 * talk to the slave port...
+	 */
+	clrbits_8(&i2c->i2c_i2mod, 0x01);
+
+	/* Set the PortPins to GPIO */
+	setports(1);
+#endif
+
 	int	scl_state = 0;
 	int	sda_state = 0;
 	int	i = 0;
@@ -128,8 +166,13 @@ int i2c_make_abort(void)
 	set_sda(1);
 	get_sda();
 
+#if defined(CONFIG_HARD_I2C)
+	/* Set the PortPins back to use for I2C */
+	setports(0);
+#endif
 	return ret;
 }
+#endif
 
 /**
  * i2c_init_board - reset i2c bus. When the board is powercycled during a
@@ -142,7 +185,17 @@ void i2c_init_board(void)
 }
 #endif
 
-#if defined(CONFIG_KM_COMMON_ETH_INIT)
+
+#if !defined(MACH_TYPE_KM_KIRKWOOD)
+int ethernet_present(void)
+{
+	struct km_bec_fpga *base =
+		(struct km_bec_fpga *)CONFIG_SYS_KMBEC_FPGA_BASE;
+
+	return in_8(&base->bprth) & PIGGY_PRESENT;
+}
+#endif
+
 int board_eth_init(bd_t *bis)
 {
 	if (ethernet_present())
@@ -150,7 +203,6 @@ int board_eth_init(bd_t *bis)
 
 	return -1;
 }
-#endif
 
 /*
  * do_setboardid command
@@ -168,8 +220,8 @@ static int do_setboardid(cmd_tbl_t *cmdtp, int flag, int argc,
 		printf("can't get the IVM_Boardid\n");
 		return 1;
 	}
-	strcpy((char *)buf, p);
-	env_set("boardid", (char *)buf);
+	sprintf((char *)buf, "%s", p);
+	setenv("boardid", (char *)buf);
 	printf("set boardid=%s\n", buf);
 
 	p = get_local_var("IVM_HWKey");
@@ -177,8 +229,8 @@ static int do_setboardid(cmd_tbl_t *cmdtp, int flag, int argc,
 		printf("can't get the IVM_HWKey\n");
 		return 1;
 	}
-	strcpy((char *)buf, p);
-	env_set("hwkey", (char *)buf);
+	sprintf((char *)buf, "%s", p);
+	setenv("hwkey", (char *)buf);
 	printf("set hwkey=%s\n", buf);
 	printf("Execute manually saveenv for persistent storage.\n");
 
@@ -203,7 +255,7 @@ U_BOOT_CMD(km_setboardid, 1, 0, do_setboardid, "setboardid", "read out bid and "
  *				application and in the init scripts (?)
  *	return 0 in case of match, 1 if not match or error
  */
-static int do_checkboardidhwk(cmd_tbl_t *cmdtp, int flag, int argc,
+int do_checkboardidhwk(cmd_tbl_t *cmdtp, int flag, int argc,
 			char *const argv[])
 {
 	unsigned long ivmbid = 0, ivmhwkey = 0;
@@ -236,10 +288,10 @@ static int do_checkboardidhwk(cmd_tbl_t *cmdtp, int flag, int argc,
 	}
 
 	/* now try to read values from environment if available */
-	p = env_get("boardid");
+	p = getenv("boardid");
 	if (p != NULL)
 		rc = strict_strtoul(p, 16, &envbid);
-	p = env_get("hwkey");
+	p = getenv("hwkey");
 	if (p != NULL)
 		rc = strict_strtoul(p, 16, &envhwkey);
 
@@ -253,7 +305,7 @@ static int do_checkboardidhwk(cmd_tbl_t *cmdtp, int flag, int argc,
 		 * BoardId/HWkey not available in the environment, so try the
 		 * environment variable for BoardId/HWkey list
 		 */
-		char *bidhwklist = env_get("boardIdListHex");
+		char *bidhwklist = getenv("boardIdListHex");
 
 		if (bidhwklist) {
 			int found = 0;
@@ -311,9 +363,9 @@ static int do_checkboardidhwk(cmd_tbl_t *cmdtp, int flag, int argc,
 					envbid   = bid;
 					envhwkey = hwkey;
 					sprintf(buf, "%lx", bid);
-					env_set("boardid", buf);
+					setenv("boardid", buf);
 					sprintf(buf, "%lx", hwkey);
-					env_set("hwkey", buf);
+					setenv("hwkey", buf);
 				}
 			} /* end while( ! found ) */
 		}
@@ -344,7 +396,7 @@ U_BOOT_CMD(km_checkbidhwk, 2, 0, do_checkboardidhwk,
  *  if the testpin of the board is asserted, return 1
  *  *	else return 0
  */
-static int do_checktestboot(cmd_tbl_t *cmdtp, int flag, int argc,
+int do_checktestboot(cmd_tbl_t *cmdtp, int flag, int argc,
 			char *const argv[])
 {
 	int testpin = 0;
@@ -354,13 +406,12 @@ static int do_checktestboot(cmd_tbl_t *cmdtp, int flag, int argc,
 
 #if defined(CONFIG_POST)
 	testpin = post_hotkeys_pressed();
+	s = getenv("test_bank");
 #endif
-	s = env_get("test_bank");
 	/* when test_bank is not set, act as if testpin is not asserted */
 	testboot = (testpin != 0) && (s);
 	if (verbose) {
 		printf("testpin   = %d\n", testpin);
-		/* cppcheck-suppress nullPointer */
 		printf("test_bank = %s\n", s ? s : "not set");
 		printf("boot test app : %s\n", (testboot) ? "yes" : "no");
 	}

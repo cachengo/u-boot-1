@@ -3,7 +3,10 @@
  * Holger Brunck, Keymile GmbH Hannover, <holger.brunck@keymile.com>
  * Christian Herzig, Keymile AG Switzerland, <christian.herzig@keymile.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
  */
 
 #ifndef __CONFIG_H
@@ -21,7 +24,7 @@
 #define CONFIG_HOSTNAME		kmcoge5ne
 #define CONFIG_KM_BOARD_NAME	"kmcoge5ne"
 #define CONFIG_KM_DEF_NETDEV	"netdev=eth1\0"
-#define CONFIG_NAND_ECC_BCH
+#define CONFIG_CMD_NAND
 #define CONFIG_NAND_KMETER1
 #define CONFIG_SYS_MAX_NAND_DEVICE		1
 #define NAND_MAX_CHIPS				1
@@ -95,7 +98,7 @@
 #define CONFIG_SYS_DDR_CS0_CONFIG (\
 	CSCONFIG_EN | \
 	CSCONFIG_AP | \
-	CSCONFIG_ODT_WR_ONLY_CURRENT | \
+	CSCONFIG_ODT_RD_ONLY_CURRENT | \
 	CSCONFIG_BANK_BIT_3 | \
 	CSCONFIG_ROW_BIT_13 | \
 	CSCONFIG_COL_BIT_10)
@@ -103,7 +106,7 @@
 #define CONFIG_SYS_DDR_CS0_CONFIG	(CSCONFIG_EN | CSCONFIG_AP | \
 					 CSCONFIG_ROW_BIT_13 | \
 					 CSCONFIG_COL_BIT_10 | \
-					 CSCONFIG_ODT_WR_ONLY_CURRENT)
+					 CSCONFIG_ODT_RD_ONLY_CURRENT)
 #endif
 
 #define CONFIG_SYS_DDR_CLK_CNTL (\
@@ -229,6 +232,7 @@
 
 #define CONFIG_SYS_DBAT5U	CONFIG_SYS_IBAT5U
 
+
 #ifdef CONFIG_KMCOGE5NE
 /* BFTIC3:  icache cacheable, but dcache-inhibit and guarded */
 #define CONFIG_SYS_IBAT6L (\
@@ -268,6 +272,7 @@
 #define CPM_POST_WORD_ADDR  CONFIG_SYS_MEMTEST_END
 #define CONFIG_TESTPIN_REG  gprt3	/* for kmcoge5ne */
 #define CONFIG_TESTPIN_MASK 0x20	/* for kmcoge5ne */
+#define CONFIG_CMD_DIAG	/* so that testpin is inquired for POST test */
 
 #else
 #define CONFIG_SYS_IBAT6L	(0)

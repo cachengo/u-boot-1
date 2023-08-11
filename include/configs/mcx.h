@@ -3,7 +3,19 @@
  *
  * Based on omap3_evm_config.h
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc.
  */
 
 #ifndef __CONFIG_H
@@ -12,19 +24,36 @@
 /*
  * High Level Configuration Options
  */
+#define CONFIG_OMAP			/* in a TI OMAP core */
+#define CONFIG_OMAP34XX			/* which is a 34XX */
+#define CONFIG_OMAP3_MCX		/* working with mcx */
+#define CONFIG_OMAP_GPIO
 
+#define MACH_TYPE_MCX			3656
 #define CONFIG_MACH_TYPE	MACH_TYPE_MCX
+#define CONFIG_BOARD_LATE_INIT
+
+#define CONFIG_SYS_CACHELINE_SIZE	64
 
 #define CONFIG_EMIF4	/* The chip has EMIF4 controller */
 
 #include <asm/arch/cpu.h>		/* get chip and board defs */
-#include <asm/arch/omap.h>
+#include <asm/arch/omap3.h>
+
+#define CONFIG_OF_LIBFDT
+#define CONFIG_FIT
 
 /*
  * Leave it at 0x80008000 to allow booting new u-boot.bin with X-loader
  * and older u-boot.bin with the new U-Boot SPL.
  */
 #define CONFIG_SYS_TEXT_BASE		0x80008000
+
+/*
+ * Display CPU and Board information
+ */
+#define CONFIG_DISPLAY_CPUINFO
+#define CONFIG_DISPLAY_BOARDINFO
 
 /* Clock Defines */
 #define V_OSCK			26000000	/* Clock output from T2 */
@@ -56,6 +85,7 @@
  */
 #define V_NS16550_CLK			48000000	/* 48MHz (APLL96/2) */
 
+#define CONFIG_SYS_NS16550
 #define CONFIG_SYS_NS16550_SERIAL
 #define CONFIG_SYS_NS16550_REG_SIZE	(-4)
 #define CONFIG_SYS_NS16550_CLK		V_NS16550_CLK
@@ -69,25 +99,68 @@
 
 /* allow to overwrite serial and ethaddr */
 #define CONFIG_ENV_OVERWRITE
+#define CONFIG_BAUDRATE			115200
 #define CONFIG_SYS_BAUDRATE_TABLE	{4800, 9600, 19200, 38400, 57600,\
 					115200}
+#define CONFIG_MMC
+#define CONFIG_OMAP_HSMMC
+#define CONFIG_GENERIC_MMC
+#define CONFIG_DOS_PARTITION
 
 /* EHCI */
+#define CONFIG_USB_STORAGE
+#define CONFIG_OMAP3_GPIO_5
+#define CONFIG_USB_EHCI
+#define CONFIG_USB_EHCI_OMAP
+#define CONFIG_USB_ULPI
+#define CONFIG_USB_ULPI_VIEWPORT_OMAP
 #define CONFIG_OMAP_EHCI_PHY1_RESET_GPIO	57
+#define CONFIG_SYS_USB_EHCI_MAX_ROOT_PORTS 3
 
 /* commands to include */
+#include <config_cmd_default.h>
 
+#define CONFIG_CMD_EXT2		/* EXT2 Support			*/
+#define CONFIG_CMD_FAT		/* FAT support			*/
+#define CONFIG_CMD_JFFS2	/* JFFS2 Support		*/
+
+#define CONFIG_CMD_DATE
+#define CONFIG_CMD_I2C		/* I2C serial bus support	*/
+#define CONFIG_CMD_MMC		/* MMC support			*/
+#define CONFIG_CMD_FAT		/* FAT support			*/
+#define CONFIG_CMD_USB
+#define CONFIG_CMD_NAND		/* NAND support			*/
+#define CONFIG_CMD_DHCP
+#define CONFIG_CMD_PING
+#define CONFIG_CMD_CACHE
+#define CONFIG_CMD_UBI
+#define CONFIG_CMD_UBIFS
+#define CONFIG_RBTREE
+#define CONFIG_LZO
 #define CONFIG_MTD_PARTITIONS
 #define CONFIG_MTD_DEVICE
+#define CONFIG_CMD_MTDPARTS
+#define CONFIG_CMD_GPIO
 
-#define CONFIG_SYS_I2C
-#define CONFIG_SYS_OMAP24_I2C_SPEED	100000
-#define CONFIG_SYS_OMAP24_I2C_SLAVE	1
+#undef CONFIG_CMD_FLASH		/* flinfo, erase, protect	*/
+#undef CONFIG_CMD_FPGA		/* FPGA configuration Support	*/
+#undef CONFIG_CMD_IMI		/* iminfo			*/
+#undef CONFIG_CMD_IMLS		/* List all found images	*/
+
+#define CONFIG_SYS_NO_FLASH
+#define CONFIG_HARD_I2C
+#define CONFIG_SYS_I2C_SPEED		100000
+#define CONFIG_SYS_I2C_SLAVE		1
+#define CONFIG_SYS_I2C_BUS		0
+#define CONFIG_DRIVER_OMAP34XX_I2C
 
 /* RTC */
 #define CONFIG_RTC_DS1337
 #define CONFIG_SYS_I2C_RTC_ADDR		0x68
 
+#define CONFIG_CMD_NET
+#define CONFIG_CMD_MII
+#define CONFIG_CMD_NFS
 /*
  * Board NAND Info.
  */
@@ -107,8 +180,12 @@
 #define CONFIG_JFFS2_PART_SIZE		0xf980000	/* sz of jffs2 part */
 
 /* Environment information */
+#define CONFIG_BOOTDELAY	3
 
 #define CONFIG_BOOTFILE		"uImage"
+
+#define xstr(s)	str(s)
+#define str(s)	#s
 
 /* Setup MTD for NAND on the SOM */
 #define MTDIDS_DEFAULT		"nand0=omap2-nand.0"
@@ -136,13 +213,13 @@
 	"addmtd=setenv bootargs ${bootargs} ${mtdparts}\0"		\
 	"baudrate=115200\0"						\
 	"consoledev=ttyO2\0"						\
-	"hostname=" __stringify(CONFIG_HOSTNAME) "\0"			\
+	"hostname=" xstr(CONFIG_HOSTNAME) "\0"				\
 	"loadaddr=0x82000000\0"						\
 	"load=tftp ${loadaddr} ${u-boot}\0"				\
 	"load_k=tftp ${loadaddr} ${bootfile}\0"				\
 	"loaduimage=fatload mmc 0 ${loadaddr} uImage\0"			\
 	"loadmlo=tftp ${loadaddr} ${mlo}\0"				\
-	"mlo=" __stringify(CONFIG_HOSTNAME) "/MLO\0"			\
+	"mlo=" xstr(CONFIG_HOSTNAME) "/MLO\0"				\
 	"mmcargs=root=/dev/mmcblk0p2 rw "				\
 		"rootfstype=ext3 rootwait\0"				\
 	"mmcboot=echo Booting from mmc ...; "				\
@@ -156,7 +233,7 @@
 		"bootm ${loadaddr}\0"					\
 	"nfsargs=setenv bootargs root=/dev/nfs rw "			\
 		"nfsroot=${serverip}:${rootpath}\0"			\
-	"u-boot=" __stringify(CONFIG_HOSTNAME) "/u-boot.img\0"		\
+	"u-boot=" xstr(CONFIG_HOSTNAME) "/u-boot.img\0"			\
 	"uboot_addr=0x80000\0"						\
 	"update=nandecc sw;nand erase ${uboot_addr} 100000;"		\
 		"nand write ${loadaddr} ${uboot_addr} 80000\0"		\
@@ -198,9 +275,10 @@
 			"${mtdparts} "					\
 			"vram=6M omapfb.vram=1:2M,2:2M,3:2M "		\
 			"omapdss.def_disp=lcd;"				\
-		"bootm 0x82000000 0x84000000\0"				\
-	"bootcmd=mmc rescan;if fatload mmc 0 82000000 loadbootscr.scr;"	\
-		"then source 82000000;else run nandboot;fi\0"
+		"bootm 0x82000000 0x84000000\0"
+
+#define CONFIG_BOOTCOMMAND \
+	"run nandboot"
 
 #define CONFIG_AUTO_COMPLETE
 #define CONFIG_CMDLINE_EDITING
@@ -208,8 +286,17 @@
 /*
  * Miscellaneous configurable options
  */
+#define V_PROMPT			"mcx # "
+
 #define CONFIG_SYS_LONGHELP		/* undef to save memory */
+#define CONFIG_SYS_HUSH_PARSER		/* use "hush" command parser */
+#define CONFIG_SYS_PROMPT		V_PROMPT
 #define CONFIG_SYS_CBSIZE		1024/* Console I/O Buffer Size */
+/* Print Buffer Size */
+#define CONFIG_SYS_PBSIZE		(CONFIG_SYS_CBSIZE + \
+					sizeof(CONFIG_SYS_PROMPT) + 16)
+#define CONFIG_SYS_MAXARGS		16	/* max number of command */
+						/* args */
 /* Boot Argument Buffer Size */
 #define CONFIG_SYS_BARGSIZE		(CONFIG_SYS_CBSIZE)
 /* memtest works on */
@@ -228,6 +315,7 @@
  */
 #define CONFIG_SYS_TIMERBASE		OMAP34XX_GPT2
 #define CONFIG_SYS_PTV			2	/* Divisor: 2^(PTV+1) => 8 */
+#define CONFIG_SYS_HZ			1000
 
 /*
  * Physical Memory Map
@@ -241,9 +329,13 @@
  */
 
 /* **** PISMO SUPPORT *** */
-#define CONFIG_SYS_NAND_BUSWIDTH_16BIT
+
+/* Configure the PISMO */
+#define PISMO1_NAND_SIZE		GPMC_SIZE_128M
+
 #define CONFIG_NAND_OMAP_GPMC
-#define CONFIG_NAND_OMAP_GPMC_PREFETCH
+#define GPMC_NAND_ECC_LP_x16_LAYOUT
+#define CONFIG_ENV_IS_IN_NAND
 #define SMNAND_ENV_OFFSET		0x180000 /* environment starts here */
 
 /* Redundant Environment */
@@ -270,12 +362,25 @@
 					 GENERATED_GBL_DATA_SIZE)
 
 /* Defines for SPL */
+#define CONFIG_SPL
 #define CONFIG_SPL_FRAMEWORK
+#define CONFIG_SPL_BOARD_INIT
 #define CONFIG_SPL_NAND_SIMPLE
+#define CONFIG_SPL_NAND_SOFTECC
 
+#define CONFIG_SPL_LIBCOMMON_SUPPORT
+#define CONFIG_SPL_LIBDISK_SUPPORT
+#define CONFIG_SPL_I2C_SUPPORT
+#define CONFIG_SPL_MMC_SUPPORT
+#define CONFIG_SPL_FAT_SUPPORT
+#define CONFIG_SPL_LIBGENERIC_SUPPORT
+#define CONFIG_SPL_SERIAL_SUPPORT
+#define CONFIG_SPL_POWER_SUPPORT
+#define CONFIG_SPL_NAND_SUPPORT
 #define CONFIG_SPL_NAND_BASE
 #define CONFIG_SPL_NAND_DRIVERS
 #define CONFIG_SPL_NAND_ECC
+#define CONFIG_SPL_LDSCRIPT		"$(CPUDIR)/omap-common/u-boot-spl.lds"
 
 #define CONFIG_SPL_TEXT_BASE		0x40200000 /*CONFIG_SYS_SRAM_START*/
 #define CONFIG_SPL_MAX_SIZE		(54 * 1024)	/* 8 KB for stack */
@@ -287,8 +392,9 @@
 #define CONFIG_SPL_BSS_START_ADDR	0x8f080000 /* end of RAM */
 #define CONFIG_SPL_BSS_MAX_SIZE		0x80000
 
-#define CONFIG_SYS_MMCSD_FS_BOOT_PARTITION	1
-#define CONFIG_SPL_FS_LOAD_PAYLOAD_NAME	"u-boot.img"
+#define CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_SECTOR	0x300 /* address 0x60000 */
+#define CONFIG_SYS_MMC_SD_FAT_BOOT_PARTITION	1
+#define CONFIG_SPL_FAT_LOAD_PAYLOAD_NAME	"u-boot.img"
 
 /* NAND boot config */
 #define CONFIG_SYS_NAND_PAGE_COUNT	64
@@ -302,8 +408,6 @@
 					 56, 57, 58, 59, 60, 61, 62, 63}
 #define CONFIG_SYS_NAND_ECCSIZE		256
 #define CONFIG_SYS_NAND_ECCBYTES	3
-#define CONFIG_NAND_OMAP_ECCSCHEME	OMAP_ECC_HAM1_CODE_SW
-#define CONFIG_SPL_NAND_SOFTECC
 
 #define CONFIG_SYS_NAND_U_BOOT_START   CONFIG_SYS_TEXT_BASE
 
@@ -317,14 +421,20 @@
 #define CONFIG_DRIVER_TI_EMAC
 #define CONFIG_DRIVER_TI_EMAC_USE_RMII
 #define CONFIG_MII
+#define CONFIG_BOOTP_DEFAULT
 #define CONFIG_BOOTP_DNS
 #define CONFIG_BOOTP_DNS2
 #define CONFIG_BOOTP_SEND_HOSTNAME
 #define CONFIG_NET_RETRY_COUNT 10
 #endif
 
+#define CONFIG_VIDEO
+#define CONFIG_CFB_CONSOLE
+#define CONFIG_VGA_AS_SINGLE_DEVICE
 #define CONFIG_SPLASH_SCREEN
 #define CONFIG_VIDEO_BMP_RLE8
+#define CONFIG_CMD_BMP
 #define CONFIG_VIDEO_OMAP3
+#define CONFIG_SYS_CONSOLE_IS_IN_ENV
 
 #endif /* __CONFIG_H */

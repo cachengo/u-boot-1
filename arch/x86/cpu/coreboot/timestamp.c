@@ -3,7 +3,18 @@
  *
  * Copyright (C) 2011 The ChromiumOS Authors.  All rights reserved.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; version 2 of the License.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA, 02110-1301 USA
  */
 
 #include <common.h>
@@ -27,6 +38,8 @@ static struct timestamp_table *ts_table  __attribute__((section(".data")));
 
 void timestamp_init(void)
 {
+	ts_table = lib_sysinfo.tstamp_table;
+	timer_set_tsc_base(ts_table->base_time);
 	timestamp_add_now(TS_U_BOOT_INITTED);
 }
 
@@ -45,42 +58,4 @@ void timestamp_add(enum timestamp_id id, uint64_t ts_time)
 void timestamp_add_now(enum timestamp_id id)
 {
 	timestamp_add(id, rdtsc());
-}
-
-int timestamp_add_to_bootstage(void)
-{
-	uint i;
-
-	if (!ts_table)
-		return -1;
-
-	for (i = 0; i < ts_table->num_entries; i++) {
-		struct timestamp_entry *tse = &ts_table->entries[i];
-		const char *name = NULL;
-
-		switch (tse->entry_id) {
-		case TS_START_ROMSTAGE:
-			name = "start-romstage";
-			break;
-		case TS_BEFORE_INITRAM:
-			name = "before-initram";
-			break;
-		case TS_DEVICE_INITIALIZE:
-			name = "device-initialize";
-			break;
-		case TS_DEVICE_DONE:
-			name = "device-done";
-			break;
-		case TS_SELFBOOT_JUMP:
-			name = "selfboot-jump";
-			break;
-		}
-		if (name) {
-			bootstage_add_record(0, name, BOOTSTAGEF_ALLOC,
-					     tse->entry_stamp /
-							get_tbclk_mhz());
-		}
-	}
-
-	return 0;
 }

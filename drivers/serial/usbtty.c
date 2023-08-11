@@ -5,7 +5,20 @@
  * (C) Copyright 2006
  * Bryan O'Donoghue, bodonoghue@codehermit.ie
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307	 USA
+ *
  */
 
 #include <common.h>
@@ -50,7 +63,7 @@
 /*
  * Buffers to hold input and output data
  */
-#define USBTTY_BUFFER_SIZE 2048
+#define USBTTY_BUFFER_SIZE 256
 static circbuf_t usbtty_input;
 static circbuf_t usbtty_output;
 
@@ -389,7 +402,7 @@ static void str2wide (char *str, u16 * wide)
  * Test whether a character is in the RX buffer
  */
 
-int usbtty_tstc(struct stdio_dev *dev)
+int usbtty_tstc (void)
 {
 	struct usb_endpoint_instance *endpoint =
 		&endpoint_instance[rx_endpoint];
@@ -409,7 +422,7 @@ int usbtty_tstc(struct stdio_dev *dev)
  * written into its argument c.
  */
 
-int usbtty_getc(struct stdio_dev *dev)
+int usbtty_getc (void)
 {
 	char c;
 	struct usb_endpoint_instance *endpoint =
@@ -429,16 +442,15 @@ int usbtty_getc(struct stdio_dev *dev)
 /*
  * Output a single byte to the usb client port.
  */
-void usbtty_putc(struct stdio_dev *dev, const char c)
+void usbtty_putc (const char c)
 {
 	if (!usbtty_configured ())
 		return;
 
+	buf_push (&usbtty_output, &c, 1);
 	/* If \n, also do \r */
 	if (c == '\n')
 		buf_push (&usbtty_output, "\r", 1);
-
-	buf_push(&usbtty_output, &c, 1);
 
 	/* Poll at end to handle new data... */
 	if ((usbtty_output.size + 2) >= usbtty_output.totalsize) {
@@ -476,7 +488,7 @@ static void __usbtty_puts (const char *str, int len)
 		if (space) {
 			write_buffer (&usbtty_output);
 
-			n = min(space, min(len, maxlen));
+			n = MIN (space, MIN (len, maxlen));
 			buf_push (&usbtty_output, str, n);
 
 			str += n;
@@ -485,7 +497,7 @@ static void __usbtty_puts (const char *str, int len)
 	}
 }
 
-void usbtty_puts(struct stdio_dev *dev, const char *str)
+void usbtty_puts (const char *str)
 {
 	int n;
 	int len;
@@ -499,8 +511,8 @@ void usbtty_puts(struct stdio_dev *dev, const char *str)
 		n = next_nl_pos (str);
 
 		if (str[n] == '\n') {
-			__usbtty_puts("\r", 1);
-			__usbtty_puts(str, n + 1);
+			__usbtty_puts (str, n + 1);
+			__usbtty_puts ("\r", 1);
 			str += (n + 1);
 			len -= (n + 1);
 		} else {
@@ -525,10 +537,10 @@ int drv_usbtty_init (void)
 	char * tt;
 	int snlen;
 
-	/* Get serial number */
-	sn = env_get("serial#");
-	if (!sn)
+	/* Ger seiral number */
+	if (!(sn = getenv("serial#"))) {
 		sn = "000000000000";
+	}
 	snlen = strlen(sn);
 	if (snlen > sizeof(serial_number) - 1) {
 		printf ("Warning: serial number %s is too long (%d > %lu)\n",
@@ -540,9 +552,10 @@ int drv_usbtty_init (void)
 
 	/* Decide on which type of UDC device to be.
 	 */
-	tt = env_get("usbtty");
-	if (!tt)
+
+	if(!(tt = getenv("usbtty"))) {
 		tt = "generic";
+	}
 	usbtty_init_terminal_type(strcmp(tt,"cdc_acm"));
 
 	/* prepare buffers... */
@@ -849,13 +862,6 @@ static int write_buffer (circbuf_t * buf)
 	struct urb *current_urb = NULL;
 
 	current_urb = next_urb (device_instance, endpoint);
-
-	if (!current_urb) {
-		TTYERR ("current_urb is NULL, buf->size %d\n",
-		buf->size);
-		return 0;
-	}
-
 	/* TX data still exists - send it now
 	 */
 	if(endpoint->sent < current_urb->actual_length){
@@ -877,13 +883,19 @@ static int write_buffer (circbuf_t * buf)
 		 */
 		while (buf->size > 0) {
 
+			if (!current_urb) {
+				TTYERR ("current_urb is NULL, buf->size %d\n",
+					buf->size);
+				return total;
+			}
+
 			dest = (char*)current_urb->buffer +
 				current_urb->actual_length;
 
 			space_avail =
 				current_urb->buffer_length -
 				current_urb->actual_length;
-			popnum = min(space_avail, (int)buf->size);
+			popnum = MIN (space_avail, buf->size);
 			if (popnum == 0)
 				break;
 
@@ -959,8 +971,8 @@ static void usbtty_event_handler (struct usb_device_instance *device,
 		/*
 		 * is_usbd_high_speed routine needs to be defined by
 		 * specific gadget driver
-		 * It returns true if device enumerates at High speed
-		 * Retuns false otherwise
+		 * It returns TRUE if device enumerates at High speed
+		 * Retuns FALSE otherwise
 		 */
 		for (i = 0; i < NUM_ENDPOINTS; i++) {
 			if (((ep_descriptor_ptrs[i]->bmAttributes &

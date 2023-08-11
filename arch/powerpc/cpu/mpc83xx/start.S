@@ -4,7 +4,23 @@
  * Copyright (C) 2000, 2001,2002 Wolfgang Denk <wd@denx.de>
  * Copyright Freescale Semiconductor, Inc. 2004, 2006, 2008.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 /*
@@ -14,9 +30,13 @@
 #include <asm-offsets.h>
 #include <config.h>
 #include <mpc83xx.h>
+#ifndef  CONFIG_IDENT_STRING
+#define  CONFIG_IDENT_STRING "MPC83XX"
+#endif
 #include <version.h>
 
 #define CONFIG_83XX	1		/* needed for Linux kernel header files*/
+#define _LINUX_CONFIG_H 1	/* avoid reading Linux autoconf.h file */
 
 #include <ppc_asm.tmpl>
 #include <ppc_defs.h>
@@ -38,13 +58,7 @@
 #define MSR_KERNEL (MSR_FP|MSR_ME|MSR_RI)
 #endif
 
-#if defined(CONFIG_NAND_SPL) || \
-	(defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPL_INIT_MINIMAL))
-#define MINIMAL_SPL
-#endif
-
-#if !defined(CONFIG_SPL_BUILD) && !defined(CONFIG_NAND_SPL) && \
-	!defined(CONFIG_SYS_RAMBOOT)
+#if !defined(CONFIG_NAND_SPL) && !defined(CONFIG_SYS_RAMBOOT)
 #define CONFIG_SYS_FLASHBOOT
 #endif
 
@@ -56,9 +70,9 @@
 	START_GOT
 	GOT_ENTRY(_GOT2_TABLE_)
 	GOT_ENTRY(__bss_start)
-	GOT_ENTRY(__bss_end)
+	GOT_ENTRY(__bss_end__)
 
-#ifndef MINIMAL_SPL
+#ifndef CONFIG_NAND_SPL
 	GOT_ENTRY(_FIXUP_TABLE_)
 	GOT_ENTRY(_start)
 	GOT_ENTRY(_start_of_vectors)
@@ -116,6 +130,11 @@ disable_addr_trans:
 	mtspr	SRR1, r3
 	rfi
 
+	.globl get_pvr
+get_pvr:
+	mfspr	r3, PVR
+	blr
+
 	.globl	ppcDWstore
 ppcDWstore:
 	lfd	1, 0(r4)
@@ -130,7 +149,7 @@ ppcDWload:
 
 #ifndef CONFIG_DEFAULT_IMMR
 #error CONFIG_DEFAULT_IMMR must be defined
-#endif /* CONFIG_DEFAULT_IMMR */
+#endif /* CONFIG_SYS_DEFAULT_IMMR */
 #ifndef CONFIG_SYS_IMMR
 #define CONFIG_SYS_IMMR CONFIG_DEFAULT_IMMR
 #endif /* CONFIG_SYS_IMMR */
@@ -187,8 +206,7 @@ _start: /* time t 0 */
 	/* Initialise the E300 processor core		*/
 	/*------------------------------------------*/
 
-#if (defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPL_MPC83XX_WAIT_FOR_NAND)) || \
-		defined(CONFIG_NAND_SPL)
+#ifdef CONFIG_NAND_SPL
 	/* The FCM begins execution after only the first page
 	 * is loaded.  Wait for the rest before branching
 	 * to another flash page.
@@ -248,40 +266,14 @@ in_flash:
 #endif
 
 	/* set up the stack pointer in our newly created
-	 * cache-ram; use r3 to keep the new SP for now to
-	 * avoid overiding the SP it uselessly */
-	lis	r3, (CONFIG_SYS_INIT_RAM_ADDR + CONFIG_SYS_GBL_DATA_OFFSET)@h
-	ori	r3, r3, (CONFIG_SYS_INIT_RAM_ADDR + CONFIG_SYS_GBL_DATA_OFFSET)@l
+	 * cache-ram (r1) */
+	lis	r1, (CONFIG_SYS_INIT_RAM_ADDR + CONFIG_SYS_GBL_DATA_OFFSET)@h
+	ori	r1, r1, (CONFIG_SYS_INIT_RAM_ADDR + CONFIG_SYS_GBL_DATA_OFFSET)@l
 
-	/* r4 = end of GD area */
-	addi r4, r3, GENERATED_GBL_DATA_SIZE
-
-	/* Zero GD area */
-	li	r0, 0
-1:
-	subi	r4, r4, 1
-	stb	r0, 0(r4)
-	cmplw	r3, r4
-	bne	1b
-
-#if CONFIG_VAL(SYS_MALLOC_F_LEN)
-
-#if CONFIG_VAL(SYS_MALLOC_F_LEN) + GENERATED_GBL_DATA_SIZE > CONFIG_SYS_INIT_RAM_SIZE
-#error "SYS_MALLOC_F_LEN too large to fit into initial RAM."
-#endif
-
-	/* r3 = new stack pointer / pre-reloc malloc area */
-	subi    r3, r3, CONFIG_VAL(SYS_MALLOC_F_LEN)
-
-	/* Set pointer to pre-reloc malloc area in GD */
-	stw     r3, GD_MALLOC_BASE(r4)
-#endif
 	li	r0, 0		/* Make room for stack frame header and	*/
-	stwu	r0, -4(r3)	/* clear final stack frame so that	*/
-	stwu	r0, -4(r3)	/* stack backtraces terminate cleanly	*/
+	stwu	r0, -4(r1)	/* clear final stack frame so that	*/
+	stwu	r0, -4(r1)	/* stack backtraces terminate cleanly	*/
 
-	/* Finally, actually set SP */
-	mr	r1, r3
 
 	/* let the C-code set up the rest	                    */
 	/*				                            */
@@ -296,12 +288,11 @@ in_flash:
 	bl	cpu_init_f
 
 	/* run 1st part of board init code (in Flash)*/
-	li	r3, 0		/* clear boot_flag for calling board_init_f */
 	bl	board_init_f
 
 	/* NOTREACHED - board_init_f() does not return */
 
-#ifndef MINIMAL_SPL
+#ifndef CONFIG_NAND_SPL
 /*
  * Vector Table
  */
@@ -476,7 +467,7 @@ int_return:
 	lwz	r1,GPR1(r1)
 	SYNC
 	rfi
-#endif /* !MINIMAL_SPL */
+#endif /* !CONFIG_NAND_SPL */
 
 /*
  * This code initialises the E300 processor core
@@ -733,7 +724,7 @@ setup_bats:
  * Note: requires that all cache bits in
  * HID0 are in the low half word.
  */
-#ifndef MINIMAL_SPL
+#ifndef CONFIG_NAND_SPL
 	.globl	icache_enable
 icache_enable:
 	mfspr	r3, HID0
@@ -762,7 +753,7 @@ icache_status:
 	mfspr	r3, HID0
 	rlwinm	r3, r3, (31 - HID0_ICE_SHIFT + 1), 31, 31
 	blr
-#endif	/* !MINIMAL_SPL */
+#endif	/* !CONFIG_NAND_SPL */
 
 	.globl	dcache_enable
 dcache_enable:
@@ -945,7 +936,7 @@ in_ram:
 	stw	r0,0(r3)
 2:	bdnz	1b
 
-#ifndef MINIMAL_SPL
+#ifndef CONFIG_NAND_SPL
 	/*
 	 * Now adjust the fixups and the pointers to the fixups
 	 * in case we need to move ourselves again.
@@ -972,7 +963,18 @@ clear_bss:
 	 * Now clear BSS segment
 	 */
 	lwz	r3,GOT(__bss_start)
-	lwz	r4,GOT(__bss_end)
+#if defined(CONFIG_HYMOD)
+	/*
+	 * For HYMOD - the environment is the very last item in flash.
+	 * The real .bss stops just before environment starts, so only
+	 * clear up to that point.
+	 *
+	 * taken from mods for FADS board
+	 */
+	lwz	r4,GOT(environment)
+#else
+	lwz	r4,GOT(__bss_end__)
+#endif
 
 	cmplw	0, r3, r4
 	beq	6f
@@ -989,7 +991,7 @@ clear_bss:
 	mr	r4, r10		/* Destination Address		*/
 	bl	board_init_r
 
-#ifndef MINIMAL_SPL
+#ifndef CONFIG_NAND_SPL
 	/*
 	 * Copy exception vector code to low memory
 	 *
@@ -1059,7 +1061,7 @@ trap_init:
 	mtlr	r4			/* restore link register    */
 	blr
 
-#endif /* !MINIMAL_SPL */
+#endif /* !CONFIG_NAND_SPL */
 
 #ifdef CONFIG_SYS_INIT_RAM_LOCK
 lock_ram_in_cache:
@@ -1083,7 +1085,7 @@ lock_ram_in_cache:
 	sync
 	blr
 
-#ifndef MINIMAL_SPL
+#ifndef CONFIG_NAND_SPL
 .globl unlock_ram_in_cache
 unlock_ram_in_cache:
 	/* invalidate the INIT_RAM section */
@@ -1109,7 +1111,7 @@ unlock_ram_in_cache:
 	sync
 	mtspr	HID0, r3		/* no invalidate, unlock */
 	blr
-#endif /* !MINIMAL_SPL */
+#endif /* !CONFIG_NAND_SPL */
 #endif /* CONFIG_SYS_INIT_RAM_LOCK */
 
 #ifdef CONFIG_SYS_FLASHBOOT

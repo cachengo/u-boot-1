@@ -5,13 +5,29 @@
  * (C) Copyright 2001 Sysgo Real-Time Solutions, GmbH <www.elinos.com>
  * Andreas Heppel <aheppel@sysgo.de>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <env_callback.h>
 
 #ifdef DEFAULT_ENV_INSTANCE_EMBEDDED
-env_t environment __UBOOT_ENV_SECTION__ = {
+env_t environment __PPCENV__ = {
 	ENV_CRC,	/* CRC Sum */
 #ifdef CONFIG_SYS_REDUNDAND_ENVIRONMENT
 	1,		/* Flags: valid */
@@ -28,7 +44,7 @@ const uchar default_environment[] = {
 #ifdef	CONFIG_ENV_FLAGS_LIST_DEFAULT
 	ENV_FLAGS_VAR "=" CONFIG_ENV_FLAGS_LIST_DEFAULT "\0"
 #endif
-#ifdef	CONFIG_USE_BOOTARGS
+#ifdef	CONFIG_BOOTARGS
 	"bootargs="	CONFIG_BOOTARGS			"\0"
 #endif
 #ifdef	CONFIG_BOOTCOMMAND
@@ -48,6 +64,24 @@ const uchar default_environment[] = {
 #endif
 #ifdef	CONFIG_LOADS_ECHO
 	"loads_echo="	__stringify(CONFIG_LOADS_ECHO)	"\0"
+#endif
+#ifdef	CONFIG_ETHADDR
+	"ethaddr="	__stringify(CONFIG_ETHADDR)	"\0"
+#endif
+#ifdef	CONFIG_ETH1ADDR
+	"eth1addr="	__stringify(CONFIG_ETH1ADDR)	"\0"
+#endif
+#ifdef	CONFIG_ETH2ADDR
+	"eth2addr="	__stringify(CONFIG_ETH2ADDR)	"\0"
+#endif
+#ifdef	CONFIG_ETH3ADDR
+	"eth3addr="	__stringify(CONFIG_ETH3ADDR)	"\0"
+#endif
+#ifdef	CONFIG_ETH4ADDR
+	"eth4addr="	__stringify(CONFIG_ETH4ADDR)	"\0"
+#endif
+#ifdef	CONFIG_ETH5ADDR
+	"eth5addr="	__stringify(CONFIG_ETH5ADDR)	"\0"
 #endif
 #ifdef	CONFIG_ETHPRIME
 	"ethprime="	CONFIG_ETHPRIME			"\0"
@@ -90,21 +124,14 @@ const uchar default_environment[] = {
 #endif
 #ifdef	CONFIG_ENV_VARS_UBOOT_CONFIG
 	"arch="		CONFIG_SYS_ARCH			"\0"
-#ifdef CONFIG_SYS_CPU
 	"cpu="		CONFIG_SYS_CPU			"\0"
-#endif
-#ifdef CONFIG_SYS_BOARD
 	"board="	CONFIG_SYS_BOARD		"\0"
 	"board_name="	CONFIG_SYS_BOARD		"\0"
-#endif
 #ifdef CONFIG_SYS_VENDOR
 	"vendor="	CONFIG_SYS_VENDOR		"\0"
 #endif
 #ifdef CONFIG_SYS_SOC
 	"soc="		CONFIG_SYS_SOC			"\0"
-#endif
-#ifdef CONFIG_SILENT_CONSOLE
-	"silent=enable\0"
 #endif
 #endif
 #ifdef	CONFIG_EXTRA_ENV_SETTINGS

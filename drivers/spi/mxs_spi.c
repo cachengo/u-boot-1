@@ -4,7 +4,20 @@
  * Copyright (C) 2011 Marek Vasut <marek.vasut@gmail.com>
  * on behalf of DENX Software Engineering GmbH
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  *
  * NOTE: This driver only supports the SPI-controller chipselects,
  *       GPIO driven chipselects are not supported.
@@ -12,14 +25,13 @@
 
 #include <common.h>
 #include <malloc.h>
-#include <memalign.h>
 #include <spi.h>
-#include <linux/errno.h>
+#include <asm/errno.h>
 #include <asm/io.h>
 #include <asm/arch/clock.h>
 #include <asm/arch/imx-regs.h>
 #include <asm/arch/sys_proto.h>
-#include <asm/mach-imx/dma.h>
+#include <asm/arch/dma.h>
 
 #define	MXS_SPI_MAX_TIMEOUT	1000000
 #define	MXS_SPI_PORT_OFFSET	0x2000
@@ -27,6 +39,17 @@
 #define MXS_SSP_CHIPSELECT_SHIFT	20
 
 #define MXSSSP_SMALL_TRANSFER	512
+
+/*
+ * CONFIG_MXS_SPI_DMA_ENABLE: Experimental mixed PIO/DMA support for MXS SPI
+ *                            host. Use with utmost caution!
+ *
+ *                            Enabling this is not yet recommended since this
+ *                            still doesn't support transfers to/from unaligned
+ *                            addresses. Therefore this driver will not work
+ *                            for example with saving environment. This is
+ *                            caused by DMA alignment constraints on MXS.
+ */
 
 struct mxs_spi_slave {
 	struct spi_slave	slave;
@@ -47,7 +70,7 @@ void spi_init(void)
 int spi_cs_is_valid(unsigned int bus, unsigned int cs)
 {
 	/* MXS SPI: 4 ports and 3 chip selects maximum */
-	if (!mxs_ssp_bus_id_valid(bus) || cs > 2)
+	if (bus > 3 || cs > 2)
 		return 0;
 	else
 		return 1;
@@ -57,23 +80,36 @@ struct spi_slave *spi_setup_slave(unsigned int bus, unsigned int cs,
 				  unsigned int max_hz, unsigned int mode)
 {
 	struct mxs_spi_slave *mxs_slave;
+	uint32_t addr;
+	struct mxs_ssp_regs *ssp_regs;
+	int reg;
 
 	if (!spi_cs_is_valid(bus, cs)) {
 		printf("mxs_spi: invalid bus %d / chip select %d\n", bus, cs);
 		return NULL;
 	}
 
-	mxs_slave = spi_alloc_slave(struct mxs_spi_slave, bus, cs);
+	mxs_slave = calloc(sizeof(struct mxs_spi_slave), 1);
 	if (!mxs_slave)
 		return NULL;
 
-	if (mxs_dma_init_channel(MXS_DMA_CHANNEL_AHB_APBH_SSP0 + bus))
+	if (mxs_dma_init_channel(bus))
 		goto err_init;
 
+	addr = MXS_SSP0_BASE + (bus * MXS_SPI_PORT_OFFSET);
+
+	mxs_slave->slave.bus = bus;
+	mxs_slave->slave.cs = cs;
 	mxs_slave->max_khz = max_hz / 1000;
 	mxs_slave->mode = mode;
-	mxs_slave->regs = mxs_ssp_regs_by_bus(bus);
+	mxs_slave->regs = (struct mxs_ssp_regs *)addr;
+	ssp_regs = mxs_slave->regs;
 
+	reg = readl(&ssp_regs->hw_ssp_ctrl0);
+	reg &= ~(MXS_SSP_CHIPSELECT_MASK);
+	reg |= cs << MXS_SSP_CHIPSELECT_SHIFT;
+
+	writel(reg, &ssp_regs->hw_ssp_ctrl0);
 	return &mxs_slave->slave;
 
 err_init:
@@ -95,9 +131,7 @@ int spi_claim_bus(struct spi_slave *slave)
 
 	mxs_reset_block(&ssp_regs->hw_ssp_ctrl0_reg);
 
-	writel((slave->cs << MXS_SSP_CHIPSELECT_SHIFT) |
-	       SSP_CTRL0_BUS_WIDTH_ONE_BIT,
-	       &ssp_regs->hw_ssp_ctrl0);
+	writel(SSP_CTRL0_BUS_WIDTH_ONE_BIT, &ssp_regs->hw_ssp_ctrl0);
 
 	reg = SSP_CTRL1_SSP_MODE_SPI | SSP_CTRL1_WORD_LENGTH_EIGHT_BITS;
 	reg |= (mxs_slave->mode & SPI_CPOL) ? SSP_CTRL1_POLARITY : 0;
@@ -106,7 +140,7 @@ int spi_claim_bus(struct spi_slave *slave)
 
 	writel(0, &ssp_regs->hw_ssp_cmd0);
 
-	mxs_set_ssp_busclock(slave->bus, mxs_slave->max_khz);
+	mx28_set_ssp_busclock(slave->bus, mxs_slave->max_khz);
 
 	return 0;
 }
@@ -137,12 +171,7 @@ static int mxs_spi_xfer_pio(struct mxs_spi_slave *slave,
 
 	while (length--) {
 		/* We transfer 1 byte */
-#if defined(CONFIG_MX23)
-		writel(SSP_CTRL0_XFER_COUNT_MASK, &ssp_regs->hw_ssp_ctrl0_clr);
-		writel(1, &ssp_regs->hw_ssp_ctrl0_set);
-#elif defined(CONFIG_MX28)
 		writel(1, &ssp_regs->hw_ssp_xfer_size);
-#endif
 
 		if ((flags & SPI_XFER_END) && !length)
 			mxs_spi_end_xfer(ssp_regs);
@@ -200,12 +229,6 @@ static int mxs_spi_xfer_dma(struct mxs_spi_slave *slave,
 	int tl;
 	int ret = 0;
 
-#if defined(CONFIG_MX23)
-	const int mxs_spi_pio_words = 1;
-#elif defined(CONFIG_MX28)
-	const int mxs_spi_pio_words = 4;
-#endif
-
 	ALLOC_CACHE_ALIGN_BUFFER(struct mxs_dma_desc, desc, desc_count);
 
 	memset(desc, 0, sizeof(struct mxs_dma_desc) * desc_count);
@@ -261,7 +284,7 @@ static int mxs_spi_xfer_dma(struct mxs_spi_slave *slave,
 
 		dp->cmd.data |=
 			((tl & 0xffff) << MXS_DMA_DESC_BYTES_OFFSET) |
-			(mxs_spi_pio_words << MXS_DMA_DESC_PIO_WORDS_OFFSET) |
+			(4 << MXS_DMA_DESC_PIO_WORDS_OFFSET) |
 			MXS_DMA_DESC_HALT_ON_TERMINATE |
 			MXS_DMA_DESC_TERMINATE_FLUSH;
 
@@ -278,19 +301,15 @@ static int mxs_spi_xfer_dma(struct mxs_spi_slave *slave,
 		}
 
 		/*
-		 * Write CTRL0, CMD0, CMD1 and XFER_SIZE registers in
-		 * case of MX28, write only CTRL0 in case of MX23 due
-		 * to the difference in register layout. It is utterly
+		 * Write CTRL0, CMD0, CMD1, XFER_SIZE registers. It is
 		 * essential that the XFER_SIZE register is written on
 		 * a per-descriptor basis with the same size as is the
 		 * descriptor!
 		 */
 		dp->cmd.pio_words[0] = ctrl0;
-#ifdef CONFIG_MX28
 		dp->cmd.pio_words[1] = 0;
 		dp->cmd.pio_words[2] = 0;
 		dp->cmd.pio_words[3] = tl;
-#endif
 
 		mxs_dma_desc_append(dmach, dp);
 
@@ -316,7 +335,12 @@ int spi_xfer(struct spi_slave *slave, unsigned int bitlen,
 	char dummy;
 	int write = 0;
 	char *data = NULL;
+
+#ifdef CONFIG_MXS_SPI_DMA_ENABLE
 	int dma = 1;
+#else
+	int dma = 0;
+#endif
 
 	if (bitlen == 0) {
 		if (flags & SPI_XFER_END) {

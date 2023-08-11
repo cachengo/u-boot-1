@@ -3,7 +3,23 @@
  * (C) Copyright 2002
  * Daniel Engström, Omicron Ceti AB, <daniel@omicron.se>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 /*
@@ -17,15 +33,13 @@
 #include <asm/io.h>
 #include <asm/ptrace.h>
 #include <asm/zimage.h>
+#include <asm/realmode.h>
 #include <asm/byteorder.h>
-#include <asm/bootm.h>
 #include <asm/bootparam.h>
 #ifdef CONFIG_SYS_COREBOOT
 #include <asm/arch/timestamp.h>
 #endif
 #include <linux/compiler.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 /*
  * Memory lay-out:
@@ -42,21 +56,31 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #define COMMAND_LINE_SIZE	2048
 
+unsigned generic_install_e820_map(unsigned max_entries,
+				  struct e820entry *entries)
+{
+	return 0;
+}
+
+unsigned install_e820_map(unsigned max_entries,
+			  struct e820entry *entries)
+	__attribute__((weak, alias("generic_install_e820_map")));
+
 static void build_command_line(char *command_line, int auto_boot)
 {
 	char *env_command_line;
 
 	command_line[0] = '\0';
 
-	env_command_line =  env_get("bootargs");
+	env_command_line =  getenv("bootargs");
 
 	/* set console= argument if we use a serial console */
 	if (!strstr(env_command_line, "console=")) {
-		if (!strcmp(env_get("stdout"), "serial")) {
+		if (!strcmp(getenv("stdout"), "serial")) {
 
 			/* We seem to use serial console */
 			sprintf(command_line, "console=ttyS0,%s ",
-				env_get("baudrate"));
+				getenv("baudrate"));
 		}
 	}
 
@@ -95,7 +119,7 @@ static int get_boot_protocol(struct setup_header *hdr)
 }
 
 struct boot_params *load_zimage(char *image, unsigned long kernel_size,
-				ulong *load_addressp)
+				void **load_address)
 {
 	struct boot_params *setup_base;
 	int setup_size;
@@ -147,13 +171,20 @@ struct boot_params *load_zimage(char *image, unsigned long kernel_size,
 
 	/* Determine load address */
 	if (big_image)
-		*load_addressp = BZIMAGE_LOAD_ADDR;
+		*load_address = (void *)BZIMAGE_LOAD_ADDR;
 	else
-		*load_addressp = ZIMAGE_LOAD_ADDR;
+		*load_address = (void *)ZIMAGE_LOAD_ADDR;
 
+#if (defined CONFIG_ZBOOT_32 || defined CONFIG_X86_NO_REAL_MODE)
 	printf("Building boot_params at 0x%8.8lx\n", (ulong)setup_base);
 	memset(setup_base, 0, sizeof(*setup_base));
 	setup_base->hdr = params->hdr;
+#else
+	/* load setup */
+	printf("Moving Real-Mode Code to 0x%8.8lx (%d bytes)\n",
+	       (ulong)setup_base, setup_size);
+	memmove(setup_base, image, setup_size);
+#endif
 
 	if (bootproto >= 0x0204)
 		kernel_size = hdr->syssize * 16;
@@ -165,7 +196,7 @@ struct boot_params *load_zimage(char *image, unsigned long kernel_size,
 		 * A very old kernel MUST have its real-mode code
 		 * loaded at 0x90000
 		 */
-		if ((ulong)setup_base != 0x90000) {
+		if ((u32)setup_base != 0x90000) {
 			/* Copy the real-mode kernel */
 			memmove((void *)0x90000, setup_base, setup_size);
 
@@ -196,10 +227,10 @@ struct boot_params *load_zimage(char *image, unsigned long kernel_size,
 		return 0;
 	}
 
-	printf("Loading %s at address %lx (%ld bytes)\n",
-	       big_image ? "bzImage" : "zImage", *load_addressp, kernel_size);
+	printf("Loading %s at address %p (%ld bytes)\n",
+		big_image ? "bzImage" : "zImage", *load_address, kernel_size);
 
-	memmove((void *)*load_addressp, image + setup_size, kernel_size);
+	memmove(*load_address, image + setup_size, kernel_size);
 
 	return setup_base;
 }
@@ -210,8 +241,10 @@ int setup_zimage(struct boot_params *setup_base, char *cmd_line, int auto_boot,
 	struct setup_header *hdr = &setup_base->hdr;
 	int bootproto = get_boot_protocol(hdr);
 
+#if (defined CONFIG_ZBOOT_32 || defined CONFIG_X86_NO_REAL_MODE)
 	setup_base->e820_entries = install_e820_map(
 		ARRAY_SIZE(setup_base->e820_map), setup_base->e820_map);
+#endif
 
 	if (bootproto == 0x0100) {
 		setup_base->screen_info.cl_magic = COMMAND_LINE_MAGIC;
@@ -235,28 +268,67 @@ int setup_zimage(struct boot_params *setup_base, char *cmd_line, int auto_boot,
 		hdr->loadflags |= HEAP_FLAG;
 	}
 
-	if (cmd_line) {
-		if (bootproto >= 0x0202) {
-			hdr->cmd_line_ptr = (uintptr_t)cmd_line;
-		} else if (bootproto >= 0x0200) {
-			setup_base->screen_info.cl_magic = COMMAND_LINE_MAGIC;
-			setup_base->screen_info.cl_offset =
-				(uintptr_t)cmd_line - (uintptr_t)setup_base;
+	if (bootproto >= 0x0202) {
+		hdr->cmd_line_ptr = (uintptr_t)cmd_line;
+	} else if (bootproto >= 0x0200) {
+		setup_base->screen_info.cl_magic = COMMAND_LINE_MAGIC;
+		setup_base->screen_info.cl_offset =
+			(uintptr_t)cmd_line - (uintptr_t)setup_base;
 
-			hdr->setup_move_size = 0x9100;
-		}
-
-#if defined(CONFIG_INTEL_MID)
-		hdr->hardware_subarch = X86_SUBARCH_INTEL_MID;
-#endif
-
-		/* build command line at COMMAND_LINE_OFFSET */
-		build_command_line(cmd_line, auto_boot);
+		hdr->setup_move_size = 0x9100;
 	}
 
-	setup_video(&setup_base->screen_info);
-
+	/* build command line at COMMAND_LINE_OFFSET */
+	build_command_line(cmd_line, auto_boot);
 	return 0;
+}
+
+/*
+ * Implement a weak default function for boards that optionally
+ * need to clean up the system before jumping to the kernel.
+ */
+__weak void board_final_cleanup(void)
+{
+}
+
+void boot_zimage(void *setup_base, void *load_address)
+{
+	board_final_cleanup();
+
+	printf("\nStarting kernel ...\n\n");
+
+#ifdef CONFIG_SYS_COREBOOT
+	timestamp_add_now(TS_U_BOOT_START_KERNEL);
+#endif
+#if defined CONFIG_ZBOOT_32
+	/*
+	 * Set %ebx, %ebp, and %edi to 0, %esi to point to the boot_params
+	 * structure, and then jump to the kernel. We assume that %cs is
+	 * 0x10, 4GB flat, and read/execute, and the data segments are 0x18,
+	 * 4GB flat, and read/write. U-boot is setting them up that way for
+	 * itself in arch/i386/cpu/cpu.c.
+	 */
+	__asm__ __volatile__ (
+	"movl $0, %%ebp\n"
+	"cli\n"
+	"jmp *%[kernel_entry]\n"
+	:: [kernel_entry]"a"(load_address),
+	   [boot_params] "S"(setup_base),
+	   "b"(0), "D"(0)
+	:  "%ebp"
+	);
+#else
+	struct pt_regs regs;
+
+	memset(&regs, 0, sizeof(struct pt_regs));
+	regs.xds = (u32)setup_base >> 4;
+	regs.xes = regs.xds;
+	regs.xss = regs.xds;
+	regs.esp = 0x9000;
+	regs.eflags = 0;
+	enter_realmode(((u32)setup_base + SETUP_START_OFFSET) >> 4, 0,
+		       &regs, &regs);
+#endif
 }
 
 void setup_pcat_compatibility(void)
@@ -270,7 +342,7 @@ int do_zboot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 {
 	struct boot_params *base_ptr;
 	void *bzImage_addr = NULL;
-	ulong load_address;
+	void *load_address;
 	char *s;
 	ulong bzImage_size = 0;
 	ulong initrd_addr = 0;
@@ -285,7 +357,7 @@ int do_zboot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 		/* argv[1] holds the address of the bzImage */
 		s = argv[1];
 	} else {
-		s = env_get("fileaddr");
+		s = getenv("fileaddr");
 	}
 
 	if (s)
@@ -305,17 +377,24 @@ int do_zboot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 	base_ptr = load_zimage(bzImage_addr, bzImage_size, &load_address);
 
 	if (!base_ptr) {
-		puts("## Kernel loading failed ...\n");
+		printf("## Kernel loading failed ...\n");
 		return -1;
 	}
 	if (setup_zimage(base_ptr, (char *)base_ptr + COMMAND_LINE_OFFSET,
 			0, initrd_addr, initrd_size)) {
-		puts("Setting up boot parameters failed ...\n");
+		printf("Setting up boot parameters failed ...\n");
 		return -1;
 	}
 
+	printf("## Transferring control to Linux "
+	       "(at address %08x) ...\n",
+	       (u32)base_ptr);
+
 	/* we assume that the kernel is in place */
-	return boot_linux_kernel((ulong)base_ptr, load_address, false);
+	boot_zimage(base_ptr, load_address);
+	/* does not return */
+
+	return -1;
 }
 
 U_BOOT_CMD(

@@ -3,15 +3,27 @@
  *
  *  Copyright (c) 2012  Albert ARIBAUD <albert.u.boot@aribaud.net>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <config.h>
 #include <asm-offsets.h>
-#include <linux/linkage.h>
-#ifdef CONFIG_CPU_V7M
-#include <asm/armv7m.h>
-#endif
 
 /*
  * This file handles the target-independent stages of the U-Boot
@@ -25,8 +37,7 @@
  *    the GD ('global data') structure, both located in some readily
  *    available RAM (SRAM, locked cache...). In this context, VARIABLE
  *    global data, initialized or not (BSS), are UNAVAILABLE; only
- *    CONSTANT initialized data are available. GD should be zeroed
- *    before board_init_f() is called.
+ *    CONSTANT initialized data are available.
  *
  * 2. Call board_init_f(). This function prepares the hardware for
  *    execution from system RAM (DRAM, DDR...) As system RAM may not
@@ -35,136 +46,162 @@
  *    data include the relocation destination, the future stack, and
  *    the future GD location.
  *
+ * (the following applies only to non-SPL builds)
+ *
  * 3. Set up intermediate environment where the stack and GD are the
  *    ones allocated by board_init_f() in system RAM, but BSS and
  *    initialized non-const data are still not available.
  *
- * 4a.For U-Boot proper (not SPL), call relocate_code(). This function
- *    relocates U-Boot from its current location into the relocation
- *    destination computed by board_init_f().
- *
- * 4b.For SPL, board_init_f() just returns (to crt0). There is no
- *    code relocation in SPL.
+ * 4. Call relocate_code(). This function relocates U-Boot from its
+ *    current location into the relocation destination computed by
+ *    board_init_f().
  *
  * 5. Set up final environment for calling board_init_r(). This
  *    environment has BSS (initialized to 0), initialized non-const
  *    data (initialized to their intended value), and stack in system
- *    RAM (for SPL moving the stack and GD into RAM is optional - see
- *    CONFIG_SPL_STACK_R). GD has retained values set by board_init_f().
+ *    RAM. GD has retained values set by board_init_f(). Some CPUs
+ *    have some work left to do at this point regarding memory, so
+ *    call c_runtime_cpu_setup.
  *
- * 6. For U-Boot proper (not SPL), some CPUs have some work left to do
- *    at this point regarding memory, so call c_runtime_cpu_setup.
- *
- * 7. Branch to board_init_r().
- *
- * For more information see 'Board Initialisation Flow in README.
+ * 6. Branch to either nand_boot() or board_init_r().
  */
+
+/*
+ * declare nand_boot() or board_init_r() to jump to at end of crt0
+ */
+
+#if defined(CONFIG_NAND_SPL)
+
+.globl nand_boot
+
+#elif ! defined(CONFIG_SPL_BUILD)
+
+.globl board_init_r
+
+#endif
+
+/*
+ * start and end of BSS
+ */
+
+.globl __bss_start
+.globl __bss_end__
 
 /*
  * entry point of crt0 sequence
  */
+ 
+#ifdef CONFIG_MACH_AVANTA_LP_FPGA
+.globl _board_init_f_link_addr
+_board_init_f_link_addr:
+	.word board_init_f
 
-ENTRY(_main)
+.globl _start_link_val2
+_start_link_val2:
+	.word _main
+#endif
+
+.global _main
+
+_main:
 
 /*
  * Set up initial C runtime environment and call board_init_f(0).
  */
 
-#if defined(CONFIG_TPL_BUILD) && defined(CONFIG_TPL_NEEDS_SEPARATE_STACK)
-	ldr	r0, =(CONFIG_TPL_STACK)
+#if defined(CONFIG_NAND_SPL)
+	/* deprecated, use instead CONFIG_SPL_BUILD */
+	ldr	sp, =(CONFIG_SYS_INIT_SP_ADDR)
 #elif defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPL_STACK)
-	ldr	r0, =(CONFIG_SPL_STACK)
+	ldr	sp, =(CONFIG_SPL_STACK)
 #else
-	ldr	r0, =(CONFIG_SYS_INIT_SP_ADDR)
+	ldr	sp, =(CONFIG_SYS_INIT_SP_ADDR)
 #endif
-	bic	r0, r0, #7	/* 8-byte alignment for ABI compliance */
-	mov	sp, r0
-	bl	board_init_f_alloc_reserve
-	mov	sp, r0
-	/* set up gd here, outside any C code */
-	mov	r9, r0
-	bl	board_init_f_init_reserve
-
+	bic	sp, sp, #7	/* 8-byte alignment for ABI compliance */
+	sub	sp, #GD_SIZE	/* allocate one GD above SP */
+	bic	sp, sp, #7	/* 8-byte alignment for ABI compliance */
+	mov	r8, sp		/* GD is above SP */
 	mov	r0, #0
+#ifdef CONFIG_MACH_AVANTA_LP_FPGA
+	/* Instead of 'bl' use 'ldr pc, addr'
+	 * Rationale: 'bl' is PC-relative, => not appropriate when running
+	 * from Flash, because .text is already copied into RAM, so, flow has
+	 * to jump to RAM (meaning: linker-based symbol address).
+	 */
+	mov	r14, pc
+	ldr	pc, _board_init_f_link_addr
+#else
 	bl	board_init_f
+#endif
 
 #if ! defined(CONFIG_SPL_BUILD)
 
 /*
  * Set up intermediate environment (new sp and gd) and call
- * relocate_code(addr_moni). Trick here is that we'll return
- * 'here' but relocated.
+ * relocate_code(addr_sp, gd, addr_moni). Trick here is that
+ * we'll return 'here' but relocated.
  */
 
-	ldr	r0, [r9, #GD_START_ADDR_SP]	/* sp = gd->start_addr_sp */
-	bic	r0, r0, #7	/* 8-byte alignment for ABI compliance */
-	mov	sp, r0
-	ldr	r9, [r9, #GD_BD]		/* r9 = gd->bd */
-	sub	r9, r9, #GD_SIZE		/* new GD is below bd */
+	ldr	sp, [r8, #GD_START_ADDR_SP]	/* r8 = gd->start_addr_sp */
+	bic	sp, sp, #7	/* 8-byte alignment for ABI compliance */
+	ldr	r8, [r8, #GD_BD]		/* r8 = gd->bd */
+	sub	r8, r8, #GD_SIZE		/* new GD is below bd */
 
 	adr	lr, here
-	ldr	r0, [r9, #GD_RELOC_OFF]		/* r0 = gd->reloc_off */
-	add	lr, lr, r0
-#if defined(CONFIG_CPU_V7M)
-	orr	lr, #1				/* As required by Thumb-only */
+
+/* additional test if running from flash (FPGA) */
+#ifdef CONFIG_MACH_AVANTA_LP_FPGA	
+	adr	r0, _main		/* r0 <- current position of code */
+	ldr	r1, _start_link_val2	/* r1 =  current position  offset relative to code start :test if we run from flash or RAM */
+	cmp	r0, r1			/* if not equal we run from FLASH -> r14 offset correction needed */
+	beq	no_correction
+
+	sub	r0,  r0,  r1		/* r0 = flash base */
+	sub 	r14, r14, r0		/* r14 = fixed return address after code relocation */
 #endif
-	ldr	r0, [r9, #GD_RELOCADDR]		/* r0 = gd->relocaddr */
+/* additional test if running from flash (FPGA) */
+
+no_correction:
+	ldr	r0, [r8, #GD_RELOC_OFF]		/* lr = gd->start_addr_sp */
+	add	lr, lr, r0
+	ldr	r0, [r8, #GD_START_ADDR_SP]	/* r0 = gd->start_addr_sp */
+	mov	r1, r8				/* r1 = gd */
+	ldr	r2, [r8, #GD_RELOCADDR]		/* r2 = gd->relocaddr */
 	b	relocate_code
 here:
-/*
- * now relocate vectors
- */
-
-	bl	relocate_vectors
 
 /* Set up final (full) environment */
 
 	bl	c_runtime_cpu_setup	/* we still call old routine here */
-#endif
-#if !defined(CONFIG_SPL_BUILD) || (defined(CONFIG_SPL_FRAMEWORK) && !defined(CONFIG_TPL_BUILD))
-# ifdef CONFIG_SPL_BUILD
-	/* Use a DRAM stack for the rest of SPL, if requested */
-	bl	spl_relocate_stack_gd
-	cmp	r0, #0
-	movne	sp, r0
-	movne	r9, r0
-# endif
+
 	ldr	r0, =__bss_start	/* this is auto-relocated! */
+	ldr	r1, =__bss_end__	/* this is auto-relocated! */
 
-#ifdef CONFIG_USE_ARCH_MEMSET
-	ldr	r3, =__bss_end		/* this is auto-relocated! */
-	mov	r1, #0x00000000		/* prepare zero to clear BSS */
-
-	subs	r2, r3, r0		/* r2 = memset len */
-	bl	memset
-#else
-	ldr	r1, =__bss_end		/* this is auto-relocated! */
 	mov	r2, #0x00000000		/* prepare zero to clear BSS */
 
 clbss_l:cmp	r0, r1			/* while not at end of BSS */
-#if defined(CONFIG_CPU_V7M)
-	itt	lo
-#endif
 	strlo	r2, [r0]		/* clear 32-bit BSS word */
 	addlo	r0, r0, #4		/* move to next */
 	blo	clbss_l
-#endif
 
-#if ! defined(CONFIG_SPL_BUILD)
 	bl coloured_LED_init
 	bl red_led_on
-#endif
-	/* call board_init_r(gd_t *id, ulong dest_addr) */
-	mov     r0, r9                  /* gd_t */
-	ldr	r1, [r9, #GD_RELOCADDR]	/* dest_addr */
-	/* call board_init_r */
-#if CONFIG_IS_ENABLED(SYS_THUMB_BUILD)
-	ldr	lr, =board_init_r	/* this is auto-relocated! */
-	bx	lr
+
+#if defined(CONFIG_NAND_SPL)
+
+	/* call _nand_boot() */
+	ldr     pc, =nand_boot
+
 #else
+
+	/* call board_init_r(gd_t *id, ulong dest_addr) */
+	mov	r0, r8			/* gd_t */
+	ldr	r1, [r8, #GD_RELOCADDR]	/* dest_addr */
+	/* call board_init_r */
 	ldr	pc, =board_init_r	/* this is auto-relocated! */
-#endif
-	/* we should not return here. */
+
 #endif
 
-ENDPROC(_main)
+	/* we should not return here. */
+
+#endif

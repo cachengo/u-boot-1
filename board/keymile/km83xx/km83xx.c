@@ -11,7 +11,10 @@
  * (C) Copyright 2008 - 2010
  * Heiko Schocher, DENX Software Engineering, hs@denx.de.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
  */
 
 #include <common.h>
@@ -27,10 +30,6 @@
 #include <post.h>
 
 #include "../common/common.h"
-
-DECLARE_GLOBAL_DATA_PTR;
-
-static uchar ivm_content[CONFIG_SYS_IVM_EEPROM_MAX_LEN];
 
 const qe_iop_conf_t qe_iop_conf_tab[] = {
 	/* port pin dir open_drain assign */
@@ -96,6 +95,23 @@ const qe_iop_conf_t qe_iop_conf_tab[] = {
 	{0,  0, 0, 0, QE_IOP_TAB_END},
 };
 
+static int board_init_i2c_busses(void)
+{
+	I2C_MUX_DEVICE *dev = NULL;
+	uchar	*buf;
+
+	/* Set up the Bus for the DTTs */
+	buf = (unsigned char *) getenv("dtt_bus");
+	if (buf != NULL)
+		dev = i2c_mux_ident_muxstring(buf);
+	if (dev == NULL) {
+		printf("Error couldn't add Bus for DTT\n");
+		printf("please setup dtt_bus to where your\n");
+		printf("DTT is found.\n");
+	}
+	return 0;
+}
+
 #if defined(CONFIG_SUVD3)
 const uint upma_table[] = {
 	0x1ffedc00, 0x0ffcdc80, 0x0ffcdc80, 0x0ffcdc04, /* Words 0 to 3 */
@@ -116,28 +132,6 @@ const uint upma_table[] = {
 	0xfffffc01, 0xfffffc01, 0xfffffc01, 0xfffffc01  /* Words 60 to 63 */
 };
 #endif
-
-static int piggy_present(void)
-{
-	struct km_bec_fpga __iomem *base =
-		(struct km_bec_fpga __iomem *)CONFIG_SYS_KMBEC_FPGA_BASE;
-
-	return in_8(&base->bprth) & PIGGY_PRESENT;
-}
-
-#if defined(CONFIG_KMVECT1)
-int ethernet_present(void)
-{
-	/* ethernet port connected to simple switch without piggy */
-	return 1;
-}
-#else
-int ethernet_present(void)
-{
-	return piggy_present();
-}
-#endif
-
 
 int board_early_init_r(void)
 {
@@ -194,84 +188,13 @@ int board_early_init_r(void)
 
 int misc_init_r(void)
 {
-	ivm_read_eeprom(ivm_content, CONFIG_SYS_IVM_EEPROM_MAX_LEN);
+	/* add board specific i2c busses */
+	board_init_i2c_busses();
 	return 0;
 }
 
-#if defined(CONFIG_KMVECT1)
-#include <mv88e6352.h>
-/* Marvell MV88E6122 switch configuration */
-static struct mv88e_sw_reg extsw_conf[] = {
-	/* port 1, FRONT_MDI, autoneg */
-	{ PORT(1), PORT_PHY, NO_SPEED_FOR },
-	{ PORT(1), PORT_CTRL, FORWARDING | EGRS_FLD_ALL },
-	{ PHY(1), PHY_1000_CTRL, NO_ADV },
-	{ PHY(1), PHY_SPEC_CTRL, AUTO_MDIX_EN },
-	{ PHY(1), PHY_CTRL, PHY_100_MBPS | AUTONEG_EN | AUTONEG_RST |
-		FULL_DUPLEX },
-	/* port 2, unused */
-	{ PORT(2), PORT_CTRL, PORT_DIS },
-	{ PHY(2), PHY_CTRL, PHY_PWR_DOWN },
-	{ PHY(2), PHY_SPEC_CTRL, SPEC_PWR_DOWN },
-	/* port 3, BP_MII (CPU), PHY mode, 100BASE */
-	{ PORT(3), PORT_CTRL, FORWARDING | EGRS_FLD_ALL },
-	/* port 4, ESTAR to slot 11, SerDes, 1000BASE-X */
-	{ PORT(4), PORT_STATUS, NO_PHY_DETECT },
-	{ PORT(4), PORT_PHY, SPEED_1000_FOR },
-	{ PORT(4), PORT_CTRL, FORWARDING | EGRS_FLD_ALL },
-	/* port 5, ESTAR to slot 13, SerDes, 1000BASE-X */
-	{ PORT(5), PORT_STATUS, NO_PHY_DETECT },
-	{ PORT(5), PORT_PHY, SPEED_1000_FOR },
-	{ PORT(5), PORT_CTRL, FORWARDING | EGRS_FLD_ALL },
-	/*
-	 * Errata Fix: 1.9V Output from Internal 1.8V Regulator,
-	 * acc . MV-S300889-00D.pdf , clause 4.5
-	 */
-	{ PORT(5), 0x1A, 0xADB1 },
-	/* port 6, unused, this port has no phy */
-	{ PORT(6), PORT_CTRL, PORT_DIS },
-	/*
-	 * Errata Fix: 1.9V Output from Internal 1.8V Regulator,
-	 * acc . MV-S300889-00D.pdf , clause 4.5
-	 */
-	{ PORT(5), 0x1A, 0xADB1 },
-};
-#endif
-
 int last_stage_init(void)
 {
-#if defined(CONFIG_KMVECT1)
-	struct km_bec_fpga __iomem *base =
-		(struct km_bec_fpga __iomem *)CONFIG_SYS_KMBEC_FPGA_BASE;
-	u8 tmp_reg;
-
-	/* Release mv88e6122 from reset */
-	tmp_reg = in_8(&base->res1[0]) | 0x10; /* DIRECT3 register */
-	out_8(&base->res1[0], tmp_reg);	       /* GP28 as output */
-	tmp_reg = in_8(&base->gprt3) | 0x10;   /* GP28 to high */
-	out_8(&base->gprt3, tmp_reg);
-
-	/* configure MV88E6122 switch */
-	char *name = "UEC2";
-
-	if (miiphy_set_current_dev(name))
-		return 0;
-
-	mv88e_sw_program(name, CONFIG_KM_MVEXTSW_ADDR, extsw_conf,
-		ARRAY_SIZE(extsw_conf));
-
-	mv88e_sw_reset(name, CONFIG_KM_MVEXTSW_ADDR);
-
-	if (piggy_present()) {
-		env_set("ethact", "UEC2");
-		env_set("netdev", "eth1");
-		puts("using PIGGY for network boot\n");
-	} else {
-		env_set("netdev", "eth0");
-		puts("using frontport for network boot\n");
-	}
-#endif
-
 #if defined(CONFIG_KMCOGE5NE)
 	struct bfticu_iomap *base =
 		(struct bfticu_iomap *)CONFIG_SYS_BFTIC3_BASE;
@@ -280,14 +203,14 @@ int last_stage_init(void)
 	if (dip_switch != 0) {
 		/* start bootloader */
 		puts("DIP:   Enabled\n");
-		env_set("actual_bank", "0");
+		setenv("actual_bank", "0");
 	}
 #endif
 	set_km_env();
 	return 0;
 }
 
-static int fixed_sdram(void)
+int fixed_sdram(void)
 {
 	immap_t *im = (immap_t *)CONFIG_SYS_IMMR;
 	u32 msize = 0;
@@ -330,13 +253,13 @@ static int fixed_sdram(void)
 	return msize;
 }
 
-int dram_init(void)
+phys_size_t initdram(int board_type)
 {
 	immap_t *im = (immap_t *)CONFIG_SYS_IMMR;
 	u32 msize = 0;
 
 	if ((in_be32(&im->sysconf.immrbar) & IMMRBAR_BASE_ADDR) != (u32)im)
-		return -ENXIO;
+		return -1;
 
 	out_be32(&im->sysconf.ddrlaw[0].bar,
 		CONFIG_SYS_DDR_BASE & LAWBAR_BAR);
@@ -350,32 +273,30 @@ int dram_init(void)
 #endif
 
 	/* return total bus SDRAM size(bytes)  -- DDR */
-	gd->ram_size = msize * 1024 * 1024;
-
-	return 0;
+	return msize * 1024 * 1024;
 }
 
 int checkboard(void)
 {
 	puts("Board: Keymile " CONFIG_KM_BOARD_NAME);
 
-	if (piggy_present())
+	if (ethernet_present())
 		puts(" with PIGGY.");
 	puts("\n");
 	return 0;
 }
 
-int ft_board_setup(void *blob, bd_t *bd)
+#if defined(CONFIG_OF_BOARD_SETUP)
+void ft_board_setup(void *blob, bd_t *bd)
 {
 	ft_cpu_setup(blob, bd);
-
-	return 0;
 }
+#endif
 
 #if defined(CONFIG_HUSH_INIT_VAR)
 int hush_init_var(void)
 {
-	ivm_analyze_eeprom(ivm_content, CONFIG_SYS_IVM_EEPROM_MAX_LEN);
+	ivm_read_eeprom();
 	return 0;
 }
 #endif

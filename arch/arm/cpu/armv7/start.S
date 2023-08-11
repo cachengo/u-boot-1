@@ -10,64 +10,234 @@
  * Copyright (c) 2003	Kshitij <kshitij@ti.com>
  * Copyright (c) 2006-2008 Syed Mohammed Khasim <x0khasim@ti.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <asm-offsets.h>
 #include <config.h>
+#include <version.h>
 #include <asm/system.h>
 #include <linux/linkage.h>
-#include <asm/armv7.h>
 
+.globl _start
+_start: b	reset
+	ldr	pc, _undefined_instruction
+	ldr	pc, _software_interrupt
+	ldr	pc, _prefetch_abort
+	ldr	pc, _data_abort
+	ldr	pc, _not_used
+	ldr	pc, _irq
+	ldr	pc, _fiq
+#ifdef CONFIG_SPL_BUILD
+_undefined_instruction: .word _undefined_instruction
+_software_interrupt:	.word _software_interrupt
+_prefetch_abort:	.word _prefetch_abort
+_data_abort:		.word _data_abort
+_not_used:		.word _not_used
+_irq:			.word _irq
+_fiq:			.word _fiq
+_pad:			.word 0x12345678 /* now 16*4=64 */
+#else
+_undefined_instruction: .word undefined_instruction
+_software_interrupt:	.word software_interrupt
+_prefetch_abort:	.word prefetch_abort
+_data_abort:		.word data_abort
+_not_used:		.word not_used
+_irq:			.word irq
+_fiq:			.word fiq
+_pad:			.word 0x12345678 /* now 16*4=64 */
+#endif	/* CONFIG_SPL_BUILD */
+
+.global _end_vect
+_end_vect:
+
+	.balignl 16,0xdeadbeef
 /*************************************************************************
  *
  * Startup Code (reset vector)
  *
- * Do important init only if we don't start from memory!
- * Setup memory and board specific bits prior to relocation.
- * Relocate armboot to ram. Setup stack.
+ * do important init only if we don't start from memory!
+ * setup Memory and board specific bits prior to relocation.
+ * relocate armboot to ram
+ * setup stack
  *
  *************************************************************************/
 
-	.globl	reset
-	.globl	save_boot_params_ret
-	.type   save_boot_params_ret,%function
-#ifdef CONFIG_ARMV7_LPAE
-	.global	switch_to_hypervisor_ret
+#ifdef CONFIG_MACH_AVANTA_LP_FPGA
+.globl _start_link_val
+_start_link_val:
+	.word _start
 #endif
 
-#if !CONFIG_IS_ENABLED(TINY_FRAMEWORK)
+.globl _TEXT_BASE
+_TEXT_BASE:
+	.word	CONFIG_SYS_TEXT_BASE
+
+/*
+ * These are defined in the board-specific linker script.
+ */
+.globl _bss_start_ofs
+_bss_start_ofs:
+	.word __bss_start - _start
+
+.global	_image_copy_end_ofs
+_image_copy_end_ofs:
+	.word 	__image_copy_end - _start
+
+.globl _bss_end_ofs
+_bss_end_ofs:
+	.word __bss_end__ - _start
+
+.globl _end_ofs
+_end_ofs:
+	.word _end - _start
+
+#ifdef CONFIG_USE_IRQ
+/* IRQ stack memory (calculated at run-time) */
+.globl IRQ_STACK_START
+IRQ_STACK_START:
+	.word	0x0badc0de
+
+/* IRQ stack memory (calculated at run-time) */
+.globl FIQ_STACK_START
+FIQ_STACK_START:
+	.word 0x0badc0de
+#endif
+
+/* IRQ stack memory (calculated at run-time) + 8 bytes */
+.globl IRQ_STACK_START_IN
+IRQ_STACK_START_IN:
+	.word	0x0badc0de
+
+/*
+ * the actual reset code
+ */
 
 reset:
-	/* Allow the board to save important registers */
-	b	save_boot_params
-save_boot_params_ret:
-#ifdef CONFIG_ARMV7_LPAE
-/*
- * check for Hypervisor support
- */
-	mrc	p15, 0, r0, c0, c1, 1		@ read ID_PFR1
-	and	r0, r0, #CPUID_ARM_VIRT_MASK	@ mask virtualization bits
-	cmp	r0, #(1 << CPUID_ARM_VIRT_SHIFT)
-	beq	switch_to_hypervisor
-switch_to_hypervisor_ret:
+#ifdef CONFIG_MARVELL
+	/* Disable L2 Cache */
+	ldr r1, =0x0
+	ldr r0, =0xD0008100
+	str r1, [r0]
+
+#if defined (MV88F66XX) || defined (MV88F672X)
+/* set lower RTC/WTC configurations (01/00) for Avanta-LP & Armada-375
+   this WA is relevant only for Z1,Z2,Z3 stepping revisions */
+
+	/* Read revision ID value
+	 r0 = (MV_REG_READ(DEV_VERSION_ID_REG) & REVISON_ID_MASK) >> REVISON_ID_OFFS; */
+	ldr r0, =0xD001823C
+	ldr r1, [r0]
+	and r1, r1, #0xF00
+	mov r1, r1, lsr #8
+
+	/* Z1=0, Z2=1, Z3=2 */
+	cmp r1, #2
+	bgt not_z_revision
+
+	/* CPU RAMs */
+	ldr r2, =0x00000E01
+	ldr r3, =0xD00E8000
+	str r2, [r3]
+
+	ldr r1, =0x11111111
+	ldr r0, =0xD00EA100
+	str r1, [r0]
+
+	/* SCU  RAMs */
+	str r2, [r3]
+
+	ldr r1, =0x00000001
+	ldr r0, =0xD00EA108
+	str r1, [r0]
+
+	/* L2 RAMs */
+	str r2, [r3]
+
+	ldr r1, =0x00000111
+	ldr r0, =0xD00EA10c
+	str r1, [r0]
+
+not_z_revision:
+
+#endif /* (MV88F66XX) || (MV88F672X) */
+
+	/* Disable windows that overlap with 0xF1000000	*/
+	/* By default, window #12 overlaps with 0xF1000000 */
+	mov  r1, #0
+	ldr  r0, =0xD00200B0
+	str  r1, [r0]
+	/* Set Registers Base address. */
+	ldr  r1, =INTER_REGS_BASE
+	ldr  r0, =0xD0020080
+	str  r1, [r0]
+
+	/* align CP15 SCU (peripheral) base with internal reg base (scanned initially at Sample@Reset) */
+#if defined (MV_MSYS)
+	/* PJ4: [0:18] - Shift right Register Base before updating CP15 */
+	lsr  r1, r1, #13
+	mcr  15, 4, r1, c15, c0, 0
+#else
+	/* Update SCU (peripheral) register Base address with correct INTER_REG_BASE */
+	ldr r2, = 0xC000		/* SCU offset = 0xC000 */
+	add r1, r1, r2			/* r1 = INTER_REG_BASE + SCU_OFFSET */
+	mcr p15, 4, r1, c15, c0, 0 	/* Write SCU base register */
 #endif
+
+#ifdef MV88F78X60
+/*
+@ Initial PJ4B configurations
+@ configure Marvell debug R1
+*/
+#if defined(__BE)
+#if defined(CPU_ARMARCH7)
+		SETEND BE /* Sets ENDIANSTATE to 1, for big-endian operation */
+#else
+	/* disable I-Cache */
+	.word 0x100f11ee /* mrc 	p15, 0, r0, c1, c0 */
+	.word 0x010ac0e3 /* bic     r0, r0, #4096   ; 0x1000 I-Cache Enable bit*/
+	.word 0x0700c0e3 /* bic     r0, r0, #7      ; 0x7 MMU disable + Alignment Fault Checking enabled + D-cache disabled*/
+	.word 0x020080e3 /* orr     r0, r0, #2      ; 0x2 */
+	.word 0x800080e3 /* orr 	r0, r0, #0x80 	; Endianness = big endians*/
+	.word 0x100f01ee /* mcr     15, 0, r0, cr1, cr0, {0} */
+#endif
+	nop;nop;nop;nop;
+	nop;nop;nop;nop;
+#endif
+#endif	/* if MV88F78X60 */
+#endif
+
+	bl	save_boot_params
 	/*
-	 * disable interrupts (FIQ and IRQ), also set the cpu to SVC32 mode,
-	 * except if in HYP mode already
+	 * set the cpu to SVC32 mode
 	 */
 	mrs	r0, cpsr
-	and	r1, r0, #0x1f		@ mask mode bits
-	teq	r1, #0x1a		@ test for HYP mode
-	bicne	r0, r0, #0x1f		@ clear all mode bits
-	orrne	r0, r0, #0x13		@ set SVC mode
-	orr	r0, r0, #0xc0		@ disable FIQ and IRQ
+	bic	r0, r0, #0x1f
+	orr	r0, r0, #0xd3
 	msr	cpsr,r0
 
-	/* Enable ACTLR.SMP bit */
-	mrc	p15, 0, r0, c1, c0, 1
-	orr	r0, r0, #(1 << 6)	@ Enable ACTLR.SMP bit
-	mcr	p15, 0, r0, c1, c0, 1
+#if defined(CONFIG_AVANTA_LP_FPGA)
+/* Write to CP15:1 - point exception vector to flash (0xffff0000) */
+	ldr	r0, =0x00052078
+	mcr 	p15, 0, r0, c1, c0, 0
+#endif
+
 
 /*
  * Setup vector:
@@ -75,10 +245,10 @@ switch_to_hypervisor_ret:
  * Continue to use ROM code vector only in OMAP4 spl)
  */
 #if !(defined(CONFIG_OMAP44XX) && defined(CONFIG_SPL_BUILD))
-	/* Set V=0 in CP15 SCTLR register - for VBAR to point to vector */
-	mrc	p15, 0, r0, c1, c0, 0	@ Read CP15 SCTLR Register
+	/* Set V=0 in CP15 SCTRL register - for VBAR to point to vector */
+	mrc	p15, 0, r0, c1, c0, 0	@ Read CP15 SCTRL Register
 	bic	r0, #CR_V		@ V = 0
-	mcr	p15, 0, r0, c1, c0, 0	@ Write CP15 SCTLR Register
+	mcr	p15, 0, r0, c1, c0, 0	@ Write CP15 SCTRL Register
 
 	/* Set vector address in CP15 VBAR register */
 	ldr	r0, =_start
@@ -88,14 +258,128 @@ switch_to_hypervisor_ret:
 	/* the mask ROM code should have PLL and others stable */
 #ifndef CONFIG_SKIP_LOWLEVEL_INIT
 	bl	cpu_init_cp15
-#ifndef CONFIG_SKIP_LOWLEVEL_INIT_ONLY
 	bl	cpu_init_crit
 #endif
+
+#ifdef CONFIG_MACH_AVANTA_LP_FPGA
+/*
+ * U-Boot on FPGA board runs from flash till U-Boot relocates itself to DRAM
+ */
+relocate:				/* relocate U-Boot to RAM */
+	adr	r0, _start		/* r0 <- current position of code */
+	ldr	r1, _start_link_val	/* test if we run from flash or RAM */
+	cmp	r0, r1			/* if equal we run from RAM - no relocation needed */
+	beq	clear_bss_fpga
+
+	ldr	r2, _start_link_val
+	ldr	r3, _end_ofs
+	add	r2, r3, r2		/* r2 <- size of armboot */
+
+copy_loop_fpga:
+	ldmia	r0!, {r3-r10}		/* copy from source address [r0] */
+	stmia	r1!, {r3-r10}		/* copy to   target address [r1] */
+	cmp	r1, r2			/* until source end addreee [r2] */
+	ble	copy_loop_fpga
+
+clear_bss_fpga:
+	ldr	r0, _bss_start_ofs
+	ldr	r1, _start_link_val
+	add	r0, r0, r1
+	ldr	r1, _bss_end_ofs
+	ldr	r2, _start_link_val
+	add	r1, r1, r2
+	mov	r2, #0x0
+
+clbss_l_fpga:
+	str	r2, [r0]
+	add	r0, r0, #4
+	cmp	r0, r1
+	ble	clbss_l_fpga
 #endif
 
 	bl	_main
 
 /*------------------------------------------------------------------------------*/
+
+#ifndef CONFIG_SPL_BUILD
+/*
+ * void relocate_code (addr_sp, gd, addr_moni)
+ *
+ * This "function" does not return, instead it continues in RAM
+ * after relocating the monitor code.
+ *
+ */
+ENTRY(relocate_code)
+	mov	r4, r0	/* save addr_sp */
+	mov	r5, r1	/* save addr of gd */
+	mov	r6, r2	/* save addr of destination */
+
+	adr	r0, _start
+	cmp	r0, r6
+	moveq	r9, #0		/* no relocation. relocation offset(r9) = 0 */
+	beq	relocate_done		/* skip relocation */
+	mov	r1, r6			/* r1 <- scratch for copy_loop */
+	ldr	r3, _image_copy_end_ofs
+	add	r2, r0, r3		/* r2 <- source end address	    */
+
+copy_loop:
+	ldmia	r0!, {r9-r10}		/* copy from source address [r0]    */
+	stmia	r1!, {r9-r10}		/* copy to   target address [r1]    */
+	cmp	r0, r2			/* until source end address [r2]    */
+	blo	copy_loop
+
+	/*
+	 * fix .rel.dyn relocations
+	 */
+	ldr	r0, _TEXT_BASE		/* r0 <- Text base */
+	sub	r9, r6, r0		/* r9 <- relocation offset */
+	ldr	r10, _dynsym_start_ofs	/* r10 <- sym table ofs */
+	add	r10, r10, r0		/* r10 <- sym table in FLASH */
+	ldr	r2, _rel_dyn_start_ofs	/* r2 <- rel dyn start ofs */
+	add	r2, r2, r0		/* r2 <- rel dyn start in FLASH */
+	ldr	r3, _rel_dyn_end_ofs	/* r3 <- rel dyn end ofs */
+	add	r3, r3, r0		/* r3 <- rel dyn end in FLASH */
+fixloop:
+	ldr	r0, [r2]		/* r0 <- location to fix up, IN FLASH! */
+	add	r0, r0, r9		/* r0 <- location to fix up in RAM */
+	ldr	r1, [r2, #4]
+	and	r7, r1, #0xff
+	cmp	r7, #23			/* relative fixup? */
+	beq	fixrel
+	cmp	r7, #2			/* absolute fixup? */
+	beq	fixabs
+	/* ignore unknown type of fixup */
+	b	fixnext
+fixabs:
+	/* absolute fix: set location to (offset) symbol value */
+	mov	r1, r1, LSR #4		/* r1 <- symbol index in .dynsym */
+	add	r1, r10, r1		/* r1 <- address of symbol in table */
+	ldr	r1, [r1, #4]		/* r1 <- symbol value */
+	add	r1, r1, r9		/* r1 <- relocated sym addr */
+	b	fixnext
+fixrel:
+	/* relative fix: increase location by offset */
+	ldr	r1, [r0]
+	add	r1, r1, r9
+fixnext:
+	str	r1, [r0]
+	add	r2, r2, #8		/* each rel.dyn entry is 8 bytes */
+	cmp	r2, r3
+	blo	fixloop
+
+relocate_done:
+
+	bx	lr
+
+_rel_dyn_start_ofs:
+	.word __rel_dyn_start - _start
+_rel_dyn_end_ofs:
+	.word __rel_dyn_end - _start
+_dynsym_start_ofs:
+	.word __dynsym_start - _start
+ENDPROC(relocate_code)
+
+#endif
 
 ENTRY(c_runtime_cpu_setup)
 /*
@@ -106,12 +390,19 @@ ENTRY(c_runtime_cpu_setup)
 	mcr     p15, 0, r0, c7, c10, 4	@ DSB
 	mcr     p15, 0, r0, c7, c5, 4	@ ISB
 #endif
+/*
+ * Move vector table
+ */
+#if !defined(CONFIG_TEGRA20)
+	/* Set vector address in CP15 VBAR register */
+	ldr     r0, =_start
+	add     r0, r0, r9
+	mcr     p15, 0, r0, c12, c0, 0  @Set VBAR
+#endif /* !Tegra20 */
 
 	bx	lr
 
 ENDPROC(c_runtime_cpu_setup)
-
-#endif/* !CONFIG_IS_ENABLED(TINY_FRAMEWORK) */
 
 /*************************************************************************
  *
@@ -123,16 +414,9 @@ ENDPROC(c_runtime_cpu_setup)
  *
  *************************************************************************/
 ENTRY(save_boot_params)
-	b	save_boot_params_ret		@ back to my caller
+	bx	lr			@ back to my caller
 ENDPROC(save_boot_params)
 	.weak	save_boot_params
-
-#ifdef CONFIG_ARMV7_LPAE
-ENTRY(switch_to_hypervisor)
-	b	switch_to_hypervisor_ret
-ENDPROC(switch_to_hypervisor)
-	.weak	switch_to_hypervisor
-#endif
 
 /*************************************************************************
  *
@@ -158,8 +442,15 @@ ENTRY(cpu_init_cp15)
 	 */
 	mrc	p15, 0, r0, c1, c0, 0
 	bic	r0, r0, #0x00002000	@ clear bits 13 (--V-)
+#if defined(CONFIG_MARVELL) && defined(__BE)
+	bic	r0, r0, #0x00000007	@ clear bits  2:0 (B--- -CAM)
+#else
+	bic	r0, r0, #0x00000087	@ clear bits 7, 2:0 (B--- -CAM)
+#endif
 	bic	r0, r0, #0x00000007	@ clear bits 2:0 (-CAM)
+#if !defined(CONFIG_MARVELL)
 	orr	r0, r0, #0x00000002	@ set bit 1 (--A-) Align
+#endif
 	orr	r0, r0, #0x00000800	@ set bit 11 (Z---) BTB
 #ifdef CONFIG_SYS_ICACHE_OFF
 	bic	r0, r0, #0x00001000	@ clear bit 12 (I) I-cache
@@ -167,155 +458,10 @@ ENTRY(cpu_init_cp15)
 	orr	r0, r0, #0x00001000	@ set bit 12 (I) I-cache
 #endif
 	mcr	p15, 0, r0, c1, c0, 0
-
-#ifdef CONFIG_ARM_ERRATA_716044
-	mrc	p15, 0, r0, c1, c0, 0	@ read system control register
-	orr	r0, r0, #1 << 11	@ set bit #11
-	mcr	p15, 0, r0, c1, c0, 0	@ write system control register
-#endif
-
-#if (defined(CONFIG_ARM_ERRATA_742230) || defined(CONFIG_ARM_ERRATA_794072))
-	mrc	p15, 0, r0, c15, c0, 1	@ read diagnostic register
-	orr	r0, r0, #1 << 4		@ set bit #4
-	mcr	p15, 0, r0, c15, c0, 1	@ write diagnostic register
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_743622
-	mrc	p15, 0, r0, c15, c0, 1	@ read diagnostic register
-	orr	r0, r0, #1 << 6		@ set bit #6
-	mcr	p15, 0, r0, c15, c0, 1	@ write diagnostic register
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_751472
-	mrc	p15, 0, r0, c15, c0, 1	@ read diagnostic register
-	orr	r0, r0, #1 << 11	@ set bit #11
-	mcr	p15, 0, r0, c15, c0, 1	@ write diagnostic register
-#endif
-#ifdef CONFIG_ARM_ERRATA_761320
-	mrc	p15, 0, r0, c15, c0, 1	@ read diagnostic register
-	orr	r0, r0, #1 << 21	@ set bit #21
-	mcr	p15, 0, r0, c15, c0, 1	@ write diagnostic register
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_845369
-	mrc     p15, 0, r0, c15, c0, 1	@ read diagnostic register
-	orr     r0, r0, #1 << 22	@ set bit #22
-	mcr     p15, 0, r0, c15, c0, 1	@ write diagnostic register
-#endif
-
-	mov	r5, lr			@ Store my Caller
-	mrc	p15, 0, r1, c0, c0, 0	@ r1 has Read Main ID Register (MIDR)
-	mov	r3, r1, lsr #20		@ get variant field
-	and	r3, r3, #0xf		@ r3 has CPU variant
-	and	r4, r1, #0xf		@ r4 has CPU revision
-	mov	r2, r3, lsl #4		@ shift variant field for combined value
-	orr	r2, r4, r2		@ r2 has combined CPU variant + revision
-
-#ifdef CONFIG_ARM_ERRATA_798870
-	cmp	r2, #0x30		@ Applies to lower than R3p0
-	bge	skip_errata_798870      @ skip if not affected rev
-	cmp	r2, #0x20		@ Applies to including and above R2p0
-	blt	skip_errata_798870      @ skip if not affected rev
-
-	mrc	p15, 1, r0, c15, c0, 0  @ read l2 aux ctrl reg
-	orr	r0, r0, #1 << 7         @ Enable hazard-detect timeout
-	push	{r1-r5}			@ Save the cpu info registers
-	bl	v7_arch_cp15_set_l2aux_ctrl
-	isb				@ Recommended ISB after l2actlr update
-	pop	{r1-r5}			@ Restore the cpu info - fall through
-skip_errata_798870:
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_801819
-	cmp	r2, #0x24		@ Applies to lt including R2p4
-	bgt	skip_errata_801819      @ skip if not affected rev
-	cmp	r2, #0x20		@ Applies to including and above R2p0
-	blt	skip_errata_801819      @ skip if not affected rev
-	mrc	p15, 0, r0, c0, c0, 6	@ pick up REVIDR reg
-	and	r0, r0, #1 << 3		@ check REVIDR[3]
-	cmp	r0, #1 << 3
-	beq	skip_errata_801819	@ skip erratum if REVIDR[3] is set
-
-	mrc	p15, 0, r0, c1, c0, 1	@ read auxilary control register
-	orr	r0, r0, #3 << 27	@ Disables streaming. All write-allocate
-					@ lines allocate in the L1 or L2 cache.
-	orr	r0, r0, #3 << 25	@ Disables streaming. All write-allocate
-					@ lines allocate in the L1 cache.
-	push	{r1-r5}			@ Save the cpu info registers
-	bl	v7_arch_cp15_set_acr
-	pop	{r1-r5}			@ Restore the cpu info - fall through
-skip_errata_801819:
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_454179
-	cmp	r2, #0x21		@ Only on < r2p1
-	bge	skip_errata_454179
-
-	mrc	p15, 0, r0, c1, c0, 1	@ Read ACR
-	orr	r0, r0, #(0x3 << 6)	@ Set DBSM(BIT7) and IBE(BIT6) bits
-	push	{r1-r5}			@ Save the cpu info registers
-	bl	v7_arch_cp15_set_acr
-	pop	{r1-r5}			@ Restore the cpu info - fall through
-
-skip_errata_454179:
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_430973
-	cmp	r2, #0x21		@ Only on < r2p1
-	bge	skip_errata_430973
-
-	mrc	p15, 0, r0, c1, c0, 1	@ Read ACR
-	orr	r0, r0, #(0x1 << 6)	@ Set IBE bit
-	push	{r1-r5}			@ Save the cpu info registers
-	bl	v7_arch_cp15_set_acr
-	pop	{r1-r5}			@ Restore the cpu info - fall through
-
-skip_errata_430973:
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_621766
-	cmp	r2, #0x21		@ Only on < r2p1
-	bge	skip_errata_621766
-
-	mrc	p15, 0, r0, c1, c0, 1	@ Read ACR
-	orr	r0, r0, #(0x1 << 5)	@ Set L1NEON bit
-	push	{r1-r5}			@ Save the cpu info registers
-	bl	v7_arch_cp15_set_acr
-	pop	{r1-r5}			@ Restore the cpu info - fall through
-
-skip_errata_621766:
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_725233
-	cmp	r2, #0x21		@ Only on < r2p1 (Cortex A8)
-	bge	skip_errata_725233
-
-	mrc	p15, 1, r0, c9, c0, 2	@ Read L2ACR
-	orr	r0, r0, #(0x1 << 27)	@ L2 PLD data forwarding disable
-	push	{r1-r5}			@ Save the cpu info registers
-	bl	v7_arch_cp15_set_l2aux_ctrl
-	pop	{r1-r5}			@ Restore the cpu info - fall through
-
-skip_errata_725233:
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_852421
-	mrc	p15, 0, r0, c15, c0, 1	@ read diagnostic register
-	orr	r0, r0, #1 << 24	@ set bit #24
-	mcr	p15, 0, r0, c15, c0, 1	@ write diagnostic register
-#endif
-
-#ifdef CONFIG_ARM_ERRATA_852423
-	mrc	p15, 0, r0, c15, c0, 1	@ read diagnostic register
-	orr	r0, r0, #1 << 12	@ set bit #12
-	mcr	p15, 0, r0, c15, c0, 1	@ write diagnostic register
-#endif
-
-	mov	pc, r5			@ back to my caller
+	mov	pc, lr			@ back to my caller
 ENDPROC(cpu_init_cp15)
 
-#if !defined(CONFIG_SKIP_LOWLEVEL_INIT) && \
-	!defined(CONFIG_SKIP_LOWLEVEL_INIT_ONLY)
+#ifndef CONFIG_SKIP_LOWLEVEL_INIT
 /*************************************************************************
  *
  * CPU_init_critical registers
@@ -334,3 +480,251 @@ ENTRY(cpu_init_crit)
 	b	lowlevel_init		@ go setup pll,mux,memory
 ENDPROC(cpu_init_crit)
 #endif
+
+#ifndef CONFIG_SPL_BUILD
+/*
+ *************************************************************************
+ *
+ * Interrupt handling
+ *
+ *************************************************************************
+ */
+@
+@ IRQ stack frame.
+@
+#define S_FRAME_SIZE	72
+
+#define S_OLD_R0	68
+#define S_PSR		64
+#define S_PC		60
+#define S_LR		56
+#define S_SP		52
+
+#define S_IP		48
+#define S_FP		44
+#define S_R10		40
+#define S_R9		36
+#define S_R8		32
+#define S_R7		28
+#define S_R6		24
+#define S_R5		20
+#define S_R4		16
+#define S_R3		12
+#define S_R2		8
+#define S_R1		4
+#define S_R0		0
+
+#define MODE_SVC 0x13
+#define I_BIT	 0x80
+
+/*
+ * use bad_save_user_regs for abort/prefetch/undef/swi ...
+ * use irq_save_user_regs / irq_restore_user_regs for IRQ/FIQ handling
+ */
+
+	.macro	bad_save_user_regs
+	sub	sp, sp, #S_FRAME_SIZE		@ carve out a frame on current
+						@ user stack
+	stmia	sp, {r0 - r12}			@ Save user registers (now in
+						@ svc mode) r0-r12
+	ldr	r2, IRQ_STACK_START_IN		@ set base 2 words into abort
+						@ stack
+	ldmia	r2, {r2 - r3}			@ get values for "aborted" pc
+						@ and cpsr (into parm regs)
+	add	r0, sp, #S_FRAME_SIZE		@ grab pointer to old stack
+
+	add	r5, sp, #S_SP
+	mov	r1, lr
+	stmia	r5, {r0 - r3}			@ save sp_SVC, lr_SVC, pc, cpsr
+	mov	r0, sp				@ save current stack into r0
+						@ (param register)
+	.endm
+
+	.macro	irq_save_user_regs
+	sub	sp, sp, #S_FRAME_SIZE
+	stmia	sp, {r0 - r12}			@ Calling r0-r12
+	add	r8, sp, #S_PC			@ !! R8 NEEDS to be saved !!
+						@ a reserved stack spot would
+						@ be good.
+	stmdb	r8, {sp, lr}^			@ Calling SP, LR
+	str	lr, [r8, #0]			@ Save calling PC
+	mrs	r6, spsr
+	str	r6, [r8, #4]			@ Save CPSR
+	str	r0, [r8, #8]			@ Save OLD_R0
+	mov	r0, sp
+	.endm
+
+	.macro	irq_restore_user_regs
+	ldmia	sp, {r0 - lr}^			@ Calling r0 - lr
+	mov	r0, r0
+	ldr	lr, [sp, #S_PC]			@ Get PC
+	add	sp, sp, #S_FRAME_SIZE
+	subs	pc, lr, #4			@ return & move spsr_svc into
+						@ cpsr
+	.endm
+
+	.macro get_bad_stack
+	ldr	r13, IRQ_STACK_START_IN		@ setup our mode stack (enter
+						@ in banked mode)
+
+	str	lr, [r13]			@ save caller lr in position 0
+						@ of saved stack
+	mrs	lr, spsr			@ get the spsr
+	str	lr, [r13, #4]			@ save spsr in position 1 of
+						@ saved stack
+
+	mov	r13, #MODE_SVC			@ prepare SVC-Mode
+	@ msr	spsr_c, r13
+	msr	spsr, r13			@ switch modes, make sure
+						@ moves will execute
+	mov	lr, pc				@ capture return pc
+	movs	pc, lr				@ jump to next instruction &
+						@ switch modes.
+	.endm
+
+	.macro get_bad_stack_swi
+	sub	r13, r13, #4			@ space on current stack for
+						@ scratch reg.
+	str	r0, [r13]			@ save R0's value.
+	ldr	r0, IRQ_STACK_START_IN		@ get data regions start
+						@ spots for abort stack
+	str	lr, [r0]			@ save caller lr in position 0
+						@ of saved stack
+	mrs	r0, spsr			@ get the spsr
+	str	lr, [r0, #4]			@ save spsr in position 1 of
+						@ saved stack
+	ldr	r0, [r13]			@ restore r0
+	add	r13, r13, #4			@ pop stack entry
+	.endm
+
+	.macro get_irq_stack			@ setup IRQ stack
+	ldr	sp, IRQ_STACK_START
+	.endm
+
+	.macro get_fiq_stack			@ setup FIQ stack
+	ldr	sp, FIQ_STACK_START
+	.endm
+
+/*
+ * exception handlers
+ */
+	.align	5
+undefined_instruction:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_undefined_instruction
+
+	.align	5
+software_interrupt:
+	get_bad_stack_swi
+	bad_save_user_regs
+	bl	do_software_interrupt
+
+	.align	5
+prefetch_abort:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_prefetch_abort
+
+	.align	5
+data_abort:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_data_abort
+
+	.align	5
+not_used:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_not_used
+
+#ifdef CONFIG_USE_IRQ
+
+	.align	5
+irq:
+	get_irq_stack
+	irq_save_user_regs
+	bl	do_irq
+	irq_restore_user_regs
+
+	.align	5
+fiq:
+	get_fiq_stack
+	/* someone ought to write a more effective fiq_save_user_regs */
+	irq_save_user_regs
+	bl	do_fiq
+	irq_restore_user_regs
+
+#else
+
+	.align	5
+irq:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_irq
+
+	.align	5
+fiq:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_fiq
+
+#endif /* CONFIG_USE_IRQ */
+#endif /* CONFIG_SPL_BUILD */
+	.align 5
+.global armv7_mmu_cache_flush
+armv7_mmu_cache_flush:
+		mrc	p15, 0, r10, c0, c1, 5	@ read ID_MMFR1
+		tst	r10, #0xf << 16		@ hierarchical cache (ARMv7)
+		mov	r10, #0
+		beq	hierarchical
+		mcr	p15, 0, r10, c7, c6, 0	@ clean+invalidate D
+		b	iflush
+hierarchical:
+		mcr	p15, 0, r10, c7, c10, 5	@ DMB
+		stmfd	sp!, {r0-r7, r9-r11}
+		mrc	p15, 1, r0, c0, c0, 1	@ read clidr
+		ands	r3, r0, #0x7000000	@ extract loc from clidr
+		mov	r3, r3, lsr #23		@ left align loc bit field
+		beq	finished		@ if loc is 0, then no need to clean
+		mov	r10, #0			@ start clean at cache level 0
+loop1:
+		add	r2, r10, r10, lsr #1	@ work out 3x current cache level
+		mov	r1, r0, lsr r2		@ extract cache type bits from clidr
+		and	r1, r1, #7		@ mask of the bits for current cache only
+		cmp	r1, #2			@ see what cache we have at this level
+		blt	skip			@ skip if no cache, or just i-cache
+		mcr	p15, 2, r10, c0, c0, 0	@ select current cache level in cssr
+		mcr	p15, 0, r10, c7, c5, 4	@ isb to sych the new cssr&csidr
+		mrc	p15, 1, r1, c0, c0, 0	@ read the new csidr
+		and	r2, r1, #7		@ extract the length of the cache lines
+		add	r2, r2, #4		@ add 4 (line length offset)
+		ldr	r4, =0x3ff
+		ands	r4, r4, r1, lsr #3	@ find maximum number on the way size
+		clz	r5, r4			@ find bit position of way size increment
+		ldr	r7, =0x7fff
+		ands	r7, r7, r1, lsr #13	@ extract max number of the index size
+loop2:
+		mov	r9, r4			@ create working copy of max way size
+loop3:
+		orr	r11, r10, r9, lsl r5	@ factor way and cache number into r11
+		orr	r11, r11, r7, lsl r2	@ factor index number into r11
+		mcr	p15, 0, r11, c7, c14, 2	@ clean & invalidate by set/way
+		subs	r9, r9, #1		@ decrement the way
+		bge	loop3
+		subs	r7, r7, #1		@ decrement the index
+		bge	loop2
+skip:
+		add	r10, r10, #2		@ increment cache number
+		cmp	r3, r10
+		bgt	loop1
+finished:
+		ldmfd	sp!, {r0-r7, r9-r11}
+		mov	r10, #0			@ swith back to cache level 0
+		mcr	p15, 2, r10, c0, c0, 0	@ select current cache level in cssr
+iflush:
+		mcr	p15, 0, r10, c7, c10, 4	@ DSB
+		mcr	p15, 0, r10, c7, c5, 0	@ invalidate I+BTB
+		mcr	p15, 0, r10, c7, c10, 4	@ DSB
+		mcr	p15, 0, r10, c7, c5, 4	@ ISB
+		mov	pc, lr

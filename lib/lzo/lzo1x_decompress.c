@@ -30,29 +30,16 @@ static const unsigned char lzop_magic[] = {
 
 #define HEADER_HAS_FILTER	0x00000800L
 
-
-bool lzop_is_valid_header(const unsigned char *src)
-{
-	int i;
-	/* read magic: 9 first bytes */
-	for (i = 0; i < ARRAY_SIZE(lzop_magic); i++) {
-		if (*src++ != lzop_magic[i])
-			return false;
-	}
-	return true;
-}
-
 static inline const unsigned char *parse_header(const unsigned char *src)
 {
 	u16 version;
 	int i;
 
-	if (!lzop_is_valid_header(src))
-		return NULL;
-
-	/* skip header */
-	src += 9;
-
+	/* read magic: 9 first bytes */
+	for (i = 0; i < ARRAY_SIZE(lzop_magic); i++) {
+		if (*src++ != lzop_magic[i])
+			return NULL;
+	}
 	/* get version (2bytes), skip library version (2),
 	 * 'need to be extracted' version (2) and
 	 * method (1) */
@@ -81,14 +68,13 @@ int lzop_decompress(const unsigned char *src, size_t src_len,
 	unsigned char *start = dst;
 	const unsigned char *send = src + src_len;
 	u32 slen, dlen;
-	size_t tmp, remaining;
+	size_t tmp;
 	int r;
 
 	src = parse_header(src);
 	if (!src)
 		return LZO_E_ERROR;
 
-	remaining = *dst_len;
 	while (src < send) {
 		/* read uncompressed block size */
 		dlen = get_unaligned_be32(src);
@@ -107,32 +93,18 @@ int lzop_decompress(const unsigned char *src, size_t src_len,
 		if (slen <= 0 || slen > dlen)
 			return LZO_E_ERROR;
 
-		/* abort if buffer ran out of room */
-		if (dlen > remaining)
-			return LZO_E_OUTPUT_OVERRUN;
+		/* decompress */
+		tmp = dlen;
+		r = lzo1x_decompress_safe((u8 *) src, slen, dst, &tmp);
 
-		/* When the input data is not compressed at all,
-		 * lzo1x_decompress_safe will fail, so call memcpy()
-		 * instead */
-		if (dlen == slen) {
-			memcpy(dst, src, slen);
-		} else {
-			/* decompress */
-			tmp = dlen;
-			r = lzo1x_decompress_safe((u8 *)src, slen, dst, &tmp);
+		if (r != LZO_E_OK)
+			return r;
 
-			if (r != LZO_E_OK) {
-				*dst_len = dst - start;
-				return r;
-			}
-
-			if (dlen != tmp)
-				return LZO_E_ERROR;
-		}
+		if (dlen != tmp)
+			return LZO_E_ERROR;
 
 		src += slen;
 		dst += dlen;
-		remaining -= dlen;
 	}
 
 	return LZO_E_INPUT_OVERRUN;

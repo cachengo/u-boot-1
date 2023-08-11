@@ -6,15 +6,28 @@
  *  Copyright (c) 2008 Eric Jarrige <eric.jarrige@armadeus.org>
  *  Copyright (c) 2009 Ilya Yanok <yanok@emcraft.com>
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
 #include <div64.h>
 #include <netdev.h>
 #include <asm/io.h>
-#include <asm/arch-imx/cpu.h>
 #include <asm/arch/imx-regs.h>
+#include <asm/arch/imx25-pinmux.h>
 #include <asm/arch/clock.h>
 
 #ifdef CONFIG_FSL_ESDHC
@@ -58,14 +71,6 @@ static ulong imx_get_mpllclk(void)
 	return imx_decode_pll(readl(&ccm->mpctl), fref);
 }
 
-static ulong imx_get_upllclk(void)
-{
-	struct ccm_regs *ccm = (struct ccm_regs *)IMX_CCM_BASE;
-	ulong fref = MXC_HCLK;
-
-	return imx_decode_pll(readl(&ccm->upctl), fref);
-}
-
 static ulong imx_get_armclk(void)
 {
 	struct ccm_regs *ccm = (struct ccm_regs *)IMX_CCM_BASE;
@@ -103,33 +108,13 @@ static ulong imx_get_ipgclk(void)
 static ulong imx_get_perclk(int clk)
 {
 	struct ccm_regs *ccm = (struct ccm_regs *)IMX_CCM_BASE;
-	ulong fref = readl(&ccm->mcr) & (1 << clk) ? imx_get_upllclk() :
-						     imx_get_ahbclk();
+	ulong fref = imx_get_ahbclk();
 	ulong div;
 
 	div = readl(&ccm->pcdr[CCM_PERCLK_REG(clk)]);
 	div = ((div >> CCM_PERCLK_SHIFT(clk)) & CCM_PERCLK_MASK) + 1;
 
 	return fref / div;
-}
-
-int imx_set_perclk(enum mxc_clock clk, bool from_upll, unsigned int freq)
-{
-	struct ccm_regs *ccm = (struct ccm_regs *)IMX_CCM_BASE;
-	ulong fref = from_upll ? imx_get_upllclk() : imx_get_ahbclk();
-	ulong div = (fref + freq - 1) / freq;
-
-	if (clk > MXC_UART_CLK || !div || --div > CCM_PERCLK_MASK)
-		return -EINVAL;
-
-	clrsetbits_le32(&ccm->pcdr[CCM_PERCLK_REG(clk)],
-			CCM_PERCLK_MASK << CCM_PERCLK_SHIFT(clk),
-			div << CCM_PERCLK_SHIFT(clk));
-	if (from_upll)
-		setbits_le32(&ccm->mcr, 1 << clk);
-	else
-		clrbits_le32(&ccm->mcr, 1 << clk);
-	return 0;
 }
 
 unsigned int mxc_get_clock(enum mxc_clock clk)
@@ -210,7 +195,7 @@ int print_cpuinfo(void)
 		(cpurev & 0xF0) >> 4, (cpurev & 0x0F),
 		((cpurev & 0x8000) ? " unknown" : ""),
 		strmhz(buf, imx_get_armclk()));
-	printf("Reset cause: %s\n", get_reset_cause());
+	printf("Reset cause: %s\n\n", get_reset_cause());
 	return 0;
 }
 #endif
@@ -244,9 +229,9 @@ int get_clocks(void)
 {
 #ifdef CONFIG_FSL_ESDHC
 #if CONFIG_SYS_FSL_ESDHC_ADDR == IMX_MMC_SDHC2_BASE
-	gd->arch.sdhc_clk = mxc_get_clock(MXC_ESDHC2_CLK);
+	gd->sdhc_clk = mxc_get_clock(MXC_ESDHC2_CLK);
 #else
-	gd->arch.sdhc_clk = mxc_get_clock(MXC_ESDHC1_CLK);
+	gd->sdhc_clk = mxc_get_clock(MXC_ESDHC1_CLK);
 #endif
 #endif
 	return 0;
@@ -263,7 +248,123 @@ int cpu_mmc_init(bd_t *bis)
 }
 #endif
 
+#ifdef CONFIG_MXC_UART
+void mx25_uart1_init_pins(void)
+{
+	struct iomuxc_mux_ctl *muxctl;
+	struct iomuxc_pad_ctl *padctl;
+	u32 inpadctl;
+	u32 outpadctl;
+	u32 muxmode0;
+
+	muxctl = (struct iomuxc_mux_ctl *)IMX_IOPADMUX_BASE;
+	padctl = (struct iomuxc_pad_ctl *)IMX_IOPADCTL_BASE;
+	muxmode0 = MX25_PIN_MUX_MODE(0);
+	/*
+	 * set up input pins with hysteresis and 100K pull-ups
+	 */
+	inpadctl = MX25_PIN_PAD_CTL_HYS
+	    | MX25_PIN_PAD_CTL_PKE
+	    | MX25_PIN_PAD_CTL_PUE | MX25_PIN_PAD_CTL_100K_PU;
+
+	/*
+	 * set up output pins with 100K pull-downs
+	 * FIXME: need to revisit this
+	 *      PUE is ignored if PKE is not set
+	 *      so the right value here is likely
+	 *        0x0 for no pull up/down
+	 *      or
+	 *        0xc0 for 100k pull down
+	 */
+	outpadctl = MX25_PIN_PAD_CTL_PUE | MX25_PIN_PAD_CTL_100K_PD;
+
+	/* UART1 */
+	/* rxd */
+	writel(muxmode0, &muxctl->pad_uart1_rxd);
+	writel(inpadctl, &padctl->pad_uart1_rxd);
+
+	/* txd */
+	writel(muxmode0, &muxctl->pad_uart1_txd);
+	writel(outpadctl, &padctl->pad_uart1_txd);
+
+	/* rts */
+	writel(muxmode0, &muxctl->pad_uart1_rts);
+	writel(outpadctl, &padctl->pad_uart1_rts);
+
+	/* cts */
+	writel(muxmode0, &muxctl->pad_uart1_cts);
+	writel(inpadctl, &padctl->pad_uart1_cts);
+}
+#endif /* CONFIG_MXC_UART */
+
 #ifdef CONFIG_FEC_MXC
+void mx25_fec_init_pins(void)
+{
+	struct iomuxc_mux_ctl *muxctl;
+	struct iomuxc_pad_ctl *padctl;
+	u32 inpadctl_100kpd;
+	u32 inpadctl_22kpu;
+	u32 outpadctl;
+	u32 muxmode0;
+
+	muxctl = (struct iomuxc_mux_ctl *)IMX_IOPADMUX_BASE;
+	padctl = (struct iomuxc_pad_ctl *)IMX_IOPADCTL_BASE;
+	muxmode0 = MX25_PIN_MUX_MODE(0);
+	inpadctl_100kpd = MX25_PIN_PAD_CTL_HYS
+	    | MX25_PIN_PAD_CTL_PKE
+	    | MX25_PIN_PAD_CTL_PUE | MX25_PIN_PAD_CTL_100K_PD;
+	inpadctl_22kpu = MX25_PIN_PAD_CTL_HYS
+	    | MX25_PIN_PAD_CTL_PKE
+	    | MX25_PIN_PAD_CTL_PUE | MX25_PIN_PAD_CTL_22K_PU;
+	/*
+	 * set up output pins with 100K pull-downs
+	 * FIXME: need to revisit this
+	 *      PUE is ignored if PKE is not set
+	 *      so the right value here is likely
+	 *        0x0 for no pull
+	 *      or
+	 *        0xc0 for 100k pull down
+	 */
+	outpadctl = MX25_PIN_PAD_CTL_PUE | MX25_PIN_PAD_CTL_100K_PD;
+
+	/* FEC_TX_CLK */
+	writel(muxmode0, &muxctl->pad_fec_tx_clk);
+	writel(inpadctl_100kpd, &padctl->pad_fec_tx_clk);
+
+	/* FEC_RX_DV */
+	writel(muxmode0, &muxctl->pad_fec_rx_dv);
+	writel(inpadctl_100kpd, &padctl->pad_fec_rx_dv);
+
+	/* FEC_RDATA0 */
+	writel(muxmode0, &muxctl->pad_fec_rdata0);
+	writel(inpadctl_100kpd, &padctl->pad_fec_rdata0);
+
+	/* FEC_TDATA0 */
+	writel(muxmode0, &muxctl->pad_fec_tdata0);
+	writel(outpadctl, &padctl->pad_fec_tdata0);
+
+	/* FEC_TX_EN */
+	writel(muxmode0, &muxctl->pad_fec_tx_en);
+	writel(outpadctl, &padctl->pad_fec_tx_en);
+
+	/* FEC_MDC */
+	writel(muxmode0, &muxctl->pad_fec_mdc);
+	writel(outpadctl, &padctl->pad_fec_mdc);
+
+	/* FEC_MDIO */
+	writel(muxmode0, &muxctl->pad_fec_mdio);
+	writel(inpadctl_22kpu, &padctl->pad_fec_mdio);
+
+	/* FEC_RDATA1 */
+	writel(muxmode0, &muxctl->pad_fec_rdata1);
+	writel(inpadctl_100kpd, &padctl->pad_fec_rdata1);
+
+	/* FEC_TDATA1 */
+	writel(muxmode0, &muxctl->pad_fec_tdata1);
+	writel(outpadctl, &padctl->pad_fec_tdata1);
+
+}
+
 void imx_get_mac_from_fuse(int dev_id, unsigned char *mac)
 {
 	int i;

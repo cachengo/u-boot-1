@@ -1,7 +1,23 @@
 /*
  * Copyright 2007,2009-2011 Freescale Semiconductor, Inc.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
@@ -10,7 +26,7 @@
 #include <asm/processor.h>
 #include <asm/immap_86xx.h>
 #include <asm/fsl_pci.h>
-#include <fsl_ddr_sdram.h>
+#include <asm/fsl_ddr_sdram.h>
 #include <asm/fsl_serdes.h>
 #include <i2c.h>
 #include <asm/io.h>
@@ -18,8 +34,6 @@
 #include <fdt_support.h>
 #include <spd_sdram.h>
 #include <netdev.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 void sdram_init(void);
 phys_size_t fixed_sdram(void);
@@ -118,7 +132,8 @@ int checkboard(void)
 }
 
 
-int dram_init(void)
+phys_size_t
+initdram(int board_type)
 {
 	phys_size_t dram_size = 0;
 
@@ -131,9 +146,7 @@ int dram_init(void)
 	setup_ddr_bat(dram_size);
 
 	debug(" DDR: ");
-	gd->ram_size = dram_size;
-
-	return 0;
+	return dram_size;
 }
 
 
@@ -146,7 +159,7 @@ phys_size_t fixed_sdram(void)
 {
 #if !defined(CONFIG_SYS_RAMBOOT)
 	volatile immap_t *immap = (immap_t *)CONFIG_SYS_IMMR;
-	struct ccsr_ddr __iomem *ddr = &immap->im_ddr1;
+	volatile ccsr_ddr_t *ddr = &immap->im_ddr1;
 	uint d_init;
 
 	ddr->cs0_bnds = 0x0000001f;
@@ -261,13 +274,12 @@ void pci_init_board(void)
 }
 
 #if defined(CONFIG_OF_BOARD_SETUP)
-int ft_board_setup(void *blob, bd_t *bd)
+void
+ft_board_setup(void *blob, bd_t *bd)
 {
 	ft_cpu_setup(blob, bd);
 
 	FT_FSL_PCI_SETUP;
-
-	return 0;
 }
 #endif
 

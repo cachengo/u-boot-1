@@ -1,7 +1,20 @@
 /*
  * Copyright 2011 Freescale Semiconductor, Inc.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
@@ -9,9 +22,9 @@
 #include <asm/fsl_law.h>
 #include <asm/fsl_serdes.h>
 #include <asm/fsl_srio.h>
-#include <linux/errno.h>
+#include <asm/errno.h>
 
-#ifdef CONFIG_SRIO_PCIE_BOOT_MASTER
+#ifdef CONFIG_SYS_FSL_SRIO_PCIE_BOOT_MASTER
 #define SRIO_PORT_ACCEPT_ALL 0x10000001
 #define SRIO_IB_ATMU_AR 0x80f55000
 #define SRIO_OB_ATMU_AR_MAINT 0x80077000
@@ -286,7 +299,7 @@ void srio_init(void)
 	}
 }
 
-#ifdef CONFIG_SRIO_PCIE_BOOT_MASTER
+#ifdef CONFIG_SYS_FSL_SRIO_PCIE_BOOT_MASTER
 void srio_boot_master(int port)
 {
 	struct ccsr_rio *srio = (void *)CONFIG_SYS_FSL_SRIO_ADDR;

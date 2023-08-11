@@ -3,7 +3,23 @@
  *
  * Copyright 2010-2011 NVIDIA Corporation
  *
- * SPDX-License-Identifier:	GPL-2.0
+ * This software may be used and distributed according to the
+ * terms of the GNU Public License, Version 2, incorporated
+ * herein by reference.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * Version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #ifndef _TEGRA_I2C_H_
@@ -89,7 +105,6 @@ struct i2c_ctlr {
 	u32 sl_delay_count;		/* 3C: I2C_I2C_SL_DELAY_COUNT */
 	u32 reserved_2[4];		/* 40: */
 	struct i2c_control control;	/* 50 ~ 68 */
-	u32 clk_div;			/* 6C: I2C_I2C_CLOCK_DIVISOR */
 };
 
 /* bit fields definitions for IO Packet Header 1 format */
@@ -108,8 +123,6 @@ struct i2c_ctlr {
 /* bit fields definitions for IO Packet Header 3 format */
 #define PKT_HDR3_READ_MODE_SHIFT	19
 #define PKT_HDR3_READ_MODE_MASK		(1 << PKT_HDR3_READ_MODE_SHIFT)
-#define PKT_HDR3_REPEAT_START_SHIFT	16
-#define PKT_HDR3_REPEAT_START_MASK	(1 << PKT_HDR3_REPEAT_START_SHIFT)
 #define PKT_HDR3_SLAVE_ADDR_SHIFT	0
 #define PKT_HDR3_SLAVE_ADDR_MASK	(0x3ff << PKT_HDR3_SLAVE_ADDR_SHIFT)
 
@@ -141,16 +154,11 @@ struct i2c_ctlr {
 #define I2C_INT_ARBITRATION_LOST_SHIFT	2
 #define I2C_INT_ARBITRATION_LOST_MASK	(1 << I2C_INT_ARBITRATION_LOST_SHIFT)
 
-/* I2C_CLK_DIVISOR_REGISTER */
-#define CLK_DIV_STD_FAST_MODE		0x19
-#define CLK_DIV_HS_MODE			1
-#define CLK_MULT_STD_FAST_MODE		8
-
 /**
  * Returns the bus number of the DVC controller
  *
  * @return number of bus, or -1 if there is no DVC active
  */
-int tegra_i2c_get_dvc_bus(struct udevice **busp);
+int tegra_i2c_get_dvc_bus_num(void);
 
 #endif	/* _TEGRA_I2C_H_ */

@@ -5,7 +5,23 @@
  * (C) Copyright 2000-2003
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
  *
- * SPDX-License-Identifier:	GPL-2.0+
+ * See file CREDITS for list of people who contributed to this
+ * project.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA 02111-1307 USA
  */
 
 #include <common.h>
@@ -35,7 +51,7 @@ int checkboard (void)
 	return 0;
 }
 
-int dram_init(void)
+phys_size_t initdram (int board_type)
 {
 	int size, i;
 
@@ -92,9 +108,7 @@ int dram_init(void)
 	*(unsigned int *) (CONFIG_SYS_SDRAM_BASE1 + 0x220) = 0xA5A5;
 	size += CONFIG_SYS_SDRAM_SIZE1 * 1024 * 1024;
 #endif
-	gd->ram_size = size;
-
-	return 0;
+	return size;
 }
 
 #if defined(CONFIG_SYS_DRAM_TEST)
@@ -139,7 +153,7 @@ void hw_watchdog_init(void)
 	int enable;
 
 	enable = 1;
-	s = env_get("watchdog");
+	s = getenv("watchdog");
 	if (s != NULL)
 		if ((strncmp(s, "off", 3) == 0) || (strncmp(s, "0", 1) == 0))
 			enable = 0;
@@ -176,7 +190,7 @@ void __led_init(led_id_t mask, int state)
 
 void __led_set(led_id_t mask, int state)
 {
-	if (state == CONFIG_LED_STATUS_ON)
+	if (state == STATUS_LED_ON)
 		MCFGPTA_GPTPORT |= (1 << 3);
 	else
 		MCFGPTA_GPTPORT &= ~(1 << 3);
@@ -191,13 +205,13 @@ int drv_video_init(void)
 	unsigned long splash;
 #endif
 	printf("Init Video as ");
-	s = env_get("displaywidth");
+	s = getenv("displaywidth");
 	if (s != NULL)
 		display_width = simple_strtoul(s, NULL, 10);
 	else
 		display_width = 256;
 
-	s = env_get("displayheight");
+	s = getenv("displayheight");
 	if (s != NULL)
 		display_height = simple_strtoul(s, NULL, 10);
 	else
@@ -211,7 +225,7 @@ int drv_video_init(void)
 	vcxk_init(display_width, display_height);
 
 #ifdef CONFIG_SPLASH_SCREEN
-	s = env_get("splashimage");
+	s = getenv("splashimage");
 	if (s != NULL) {
 		splash = simple_strtoul(s, NULL, 16);
 		vcxk_acknowledge_wait();
