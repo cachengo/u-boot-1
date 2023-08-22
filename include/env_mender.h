@@ -144,9 +144,6 @@
     "load ${mender_uboot_root} ${kernel_addr_r} /boot/${mender_kernel_name}; "
 #endif
 #define MENDER_NVME_INIT						\
-    "run boot_pci_enum;"                                                \
-    "run nvme_init;"                                                    \
-    "nvme scan;"                                                        \
     "if nvme dev 0;"                                                    \
     "then devtype=nvme;fi;"
 #define MENDER_EXTLINUX							\
