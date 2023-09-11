@@ -154,6 +154,7 @@
     MENDER_BOOTARGS                                                     \
     MENDER_LOAD_KERNEL_AND_FDT                                          \
     "${mender_boot_kernel_type} ${kernel_addr_r} - ${fdt_addr_r}; "     \
+    "for c in 1 2 3 4 5 6 7 8 9 0; do run bootcmd; done;"                             \
     "run mender_try_to_recover"
 
 #endif /* !MENDER_AUTO_PROBING */

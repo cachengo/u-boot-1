@@ -52,13 +52,27 @@ static int env_fat_save(void)
         printf("\n** Initializing PCI devices **\n");
 
         pci_init();
-		nvme_scan_namespace();
+        nvme_scan_namespace();
+
         printf("\n** Device is \"%s\" **\n", CONFIG_ENV_FAT_INTERFACE);
         printf("\n** Partition is \"%s\" **\n", CONFIG_ENV_FAT_DEVICE_AND_PART);
 
 	part = blk_get_device_part_str(CONFIG_ENV_FAT_INTERFACE,
 					CONFIG_ENV_FAT_DEVICE_AND_PART,
 					&dev_desc, &info, 1);
+        while (part < 0) {
+                pci_init();
+                nvme_scan_namespace();
+
+                printf("\n** Device is \"%s\" **\n", CONFIG_ENV_FAT_INTERFACE);
+                printf("\n** Partition is \"%s\" **\n", CONFIG_ENV_FAT_DEVICE_AND_PART);
+
+                part = blk_get_device_part_str(CONFIG_ENV_FAT_INTERFACE,
+                                                CONFIG_ENV_FAT_DEVICE_AND_PART,
+                                                &dev_desc, &info, 1);
+
+	};
+
 	if (part < 0)
 		return 1;
 
@@ -92,11 +106,24 @@ static int env_fat_load(void)
 	int err;
 
         pci_init();
-		nvme_scan_namespace();
+        nvme_scan_namespace();
 
 	part = blk_get_device_part_str(CONFIG_ENV_FAT_INTERFACE,
 					CONFIG_ENV_FAT_DEVICE_AND_PART,
 					&dev_desc, &info, 1);
+        while (part < 0) { 
+                pci_init();
+                nvme_scan_namespace();
+
+                printf("\n** Device is \"%s\" **\n", CONFIG_ENV_FAT_INTERFACE);
+                printf("\n** Partition is \"%s\" **\n", CONFIG_ENV_FAT_DEVICE_AND_PART);
+
+                part = blk_get_device_part_str(CONFIG_ENV_FAT_INTERFACE,
+                                                CONFIG_ENV_FAT_DEVICE_AND_PART,
+                                                &dev_desc, &info, 1);
+
+        };
+
 	if (part < 0)
 		goto err_env_relocate;
 
