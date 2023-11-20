@@ -9,6 +9,7 @@
  */
 
 #include <common.h>
+#include <command.h>
 #include <bootstage.h>
 
 #ifdef CONFIG_SPL_BUILD
@@ -28,9 +29,10 @@ void hang(void)
 		defined(CONFIG_SPL_SERIAL_SUPPORT))
 	puts("### ERROR ### Please RESET the board ###\n");
 #endif
-	bootstage_error(BOOTSTAGE_ID_NEED_RESET);
-#ifdef CONFIG_SPL_BUILD
-	spl_hang_reset();
+do_reset(NULL, 0, 0, NULL);
+bootstage_error(BOOTSTAGE_ID_NEED_RESET);
+#if defined(CONFIG_SPL_BUILD)
+        spl_hang_reset();
 #endif
 	for (;;)
 		;

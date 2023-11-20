@@ -148,13 +148,35 @@
     "then devtype=nvme;fi;"
 #define MENDER_EXTLINUX							\
     "sysboot ${mender_uboot_root} any ${scriptaddr} /boot/${boot_syslinux_conf}"
-#define CONFIG_MENDER_BOOTCOMMAND                                       \
+#define MENDER_SUB_BOOTCMD                                              \
     "run mender_setup; "                                                \
     MENDER_NVME_INIT                                                    \
     MENDER_BOOTARGS                                                     \
     MENDER_LOAD_KERNEL_AND_FDT                                          \
-    "${mender_boot_kernel_type} ${kernel_addr_r} - ${fdt_addr_r}; "     \
-    "for c in 1 2 3 4 5 6 7 8 9 0; do run bootcmd; done;"                             \
+    "${mender_boot_kernel_type} ${kernel_addr_r} - ${fdt_addr_r}; "
+
+#define CONFIG_MENDER_BOOTCOMMAND                                       \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    "run mender_altbootcmd "                                             \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
+    MENDER_SUB_BOOTCMD                                                  \
     "run mender_try_to_recover"
 
 #endif /* !MENDER_AUTO_PROBING */
