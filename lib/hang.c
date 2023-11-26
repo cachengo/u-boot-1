@@ -10,6 +10,7 @@
 
 #include <common.h>
 #include <bootstage.h>
+#include <command.h>
 
 #ifdef CONFIG_SPL_BUILD
 __weak void spl_hang_reset(void) {}
@@ -26,6 +27,7 @@ void hang(void)
 {
 #if !defined(CONFIG_SPL_BUILD) || (defined(CONFIG_SPL_LIBCOMMON_SUPPORT) && \
 		defined(CONFIG_SPL_SERIAL_SUPPORT))
+        do_reset(NULL, 0, 0, NULL);
 	puts("### ERROR ### Please RESET the board ###\n");
 #endif
 	bootstage_error(BOOTSTAGE_ID_NEED_RESET);
