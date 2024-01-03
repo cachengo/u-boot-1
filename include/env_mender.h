@@ -136,7 +136,7 @@
     "ubifsload ${kernel_addr_r} /boot/${mender_kernel_name}; "
 #else
 # define MENDER_BOOTARGS                                                \
-    "setenv bootargs root=${mender_kernel_root} earlycon=uart8250,mmio panic=0 rw init=/sbin/init rootfstype=ext4; "
+    "setenv bootargs root=${mender_kernel_root} earlycon=uart8250,mmio panic=0 rw init=/sbin/init rootfstype=ext4 rootdelay=5; "
 # define MENDER_LOAD_KERNEL_AND_FDT                                     \
     "if test \"${fdt_addr_r}\" != \"\"; then "                          \
     "load ${mender_uboot_root} ${fdt_addr_r} /boot/${mender_dtb_name}; " \
@@ -149,6 +149,7 @@
 #define MENDER_EXTLINUX							\
     "sysboot ${mender_uboot_root} any ${scriptaddr} /boot/${boot_syslinux_conf}"
 #define MENDER_SUB_BOOTCMD                                              \
+    "set fdt_addr_r 0x83000000; "                                       \
     "run mender_setup; "                                                \
     MENDER_NVME_INIT                                                    \
     MENDER_BOOTARGS                                                     \
@@ -166,7 +167,6 @@
     MENDER_SUB_BOOTCMD                                                  \
     MENDER_SUB_BOOTCMD                                                  \
     MENDER_SUB_BOOTCMD                                                  \
-    "run mender_altbootcmd "                                             \
     MENDER_SUB_BOOTCMD                                                  \
     MENDER_SUB_BOOTCMD                                                  \
     MENDER_SUB_BOOTCMD                                                  \
@@ -177,7 +177,8 @@
     MENDER_SUB_BOOTCMD                                                  \
     MENDER_SUB_BOOTCMD                                                  \
     MENDER_SUB_BOOTCMD                                                  \
-    "run mender_try_to_recover"
+    "reset"
+/*    "run mender_try_to_recover" */
 
 #endif /* !MENDER_AUTO_PROBING */
 
