@@ -61,27 +61,30 @@
 		};
 	};
 
-	vcc3v3_pcie: vcc3v3-pcie {
-		u-boot,dm-pre-reloc;
-		compatible = "regulator-fixed";
-		regulator-name = "vcc3v3_pcie";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		enable-active-high;
-		regulator-boot-on;
-		regulator-always-on;
-		vin-supply = <&vcc5v0_sys>;
-	};
-};
-
-&combphy0_ps {
-	status = "okay";
-	u-boot,dm-pre-reloc;
+        //pcie2.0 bottom
+        vcc3v3_pcie2x1l2: vcc3v3-pcie2x1l2 {
+                u-boot,dm-pre-reloc;
+                compatible = "regulator-fixed";
+                regulator-name = "vcc3v3_pcie2x1l2";
+                regulator-min-microvolt = <3300000>;
+                regulator-max-microvolt = <3300000>;
+                enable-active-high;
+                gpio = <&gpio1 RK_PA4 GPIO_ACTIVE_HIGH>;
+                regulator-boot-on;
+                regulator-always-on;
+                vin-supply = <&vcc5v0_sys>;
+        };
 };
 
 &pcie2x1l2 {
-	status = "okay";
-	reset-gpios = <&gpio3 RK_PD2 GPIO_ACTIVE_HIGH>;
-	u-boot,dm-pre-reloc;
-	vpcie3v3-supply = <&vcc3v3_pcie>;
+        reset-gpios = <&gpio3 RK_PD2 GPIO_ACTIVE_HIGH>;
+        status = "okay";
+};
+
+&combphy0_ps {
+        status = "okay";
+};
+
+&combphy2_psu {
+        status = "okay";
 };
