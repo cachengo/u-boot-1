@@ -92,7 +92,8 @@
     "setenv mender_boot_part_name " MENDER_ROOTFS_PART_B_NAME "; "                     \
     "fi; "                                                                             \
     "setenv mender_kernel_root_name ${mender_boot_part_name}; "         \
-    "setenv mender_uboot_root " MENDER_UBOOT_STORAGE_INTERFACE " " __stringify(MENDER_UBOOT_STORAGE_DEVICE) ":${mender_boot_part_hex}; " \
+    "if test -e nvme 0:1 /dtbs; then setenv devnum 0; else setenv devnum 1; fi;" \
+    "setenv mender_uboot_root " MENDER_UBOOT_STORAGE_INTERFACE " ${devnum}:${mender_boot_part_hex}; " \
     "setenv mender_uboot_root_name ${mender_boot_part_name}; "          \
     "setenv expand_bootargs \"setenv bootargs \\\\\"${bootargs}\\\\\"\"; "              \
     "run expand_bootargs; "                                             \
